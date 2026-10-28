@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://nurumaji.co.ke/sitemap.xml
