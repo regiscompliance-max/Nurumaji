@@ -104,7 +104,7 @@ p{margin:0}
 .hero .lede{color:var(--mist);margin-top:28px}
 .hero figure{overflow:hidden;margin:0;border:1px solid rgba(201,215,208,.16);border-radius:8px;background:rgba(255,255,255,.025)}
 .hero-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:36px}
-.hero-photo{width:100%;aspect-ratio:3/2;object-fit:cover}
+.hero-photo{width:100%;height:auto;aspect-ratio:3/2;object-fit:contain;background:#EAF3F2}
 @media (max-width:860px){.hero .wrap{grid-template-columns:1fr}}
 
 /* Promise strip */

@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="diagram-title diagram-desc">
+  <title id="diagram-title">House cross-section: power and water</title>
+  <desc id="diagram-desc">Schematic section of a two-storey house. Amber wiring runs from a consumer unit to lights and sockets. An aqua rooftop tank feeds a shower, an electric water heater and a tap, with a teal drain and trap.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#122D3A" stroke-opacity=".055" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="800" fill="#EAF3F2"/>
+  <rect width="1200" height="800" fill="url(#grid)"/>
+
+  <g fill="none" stroke="#122D3A" stroke-linecap="round">
+    <path d="M118 724h964" stroke-width="4"/>
+    <path d="M148 742l16-16M186 742l16-16M224 742l16-16M1008 742l16-16M970 742l16-16M932 742l16-16" stroke-width="2" opacity=".45"/>
+  </g>
+
+  <!-- shell: roof slab, two floors -->
+  <path d="M150 176h900v32H150z" fill="#122D3A"/>
+  <path d="M178 208h844v516H178z" fill="#F7FAF8" stroke="#122D3A" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M178 452h844" stroke="#122D3A" stroke-width="16"/>
+
+  <g fill="#EAF3F2" stroke="#122D3A" stroke-width="3" stroke-linejoin="round">
+    <rect x="392" y="286" width="108" height="84" rx="2"/>
+    <path d="M446 286v84M392 328h108" stroke-width="2"/>
+    <rect x="360" y="548" width="108" height="84" rx="2"/>
+    <path d="M414 548v84M360 590h108" stroke-width="2"/>
+  </g>
+
+  <!-- supply, drawn over the shell so the drop through the roof reads clearly -->
+  <g fill="none" stroke="#68C6C1" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M900 156V220H980V680"/>
+    <path d="M980 330H852"/>
+    <path d="M980 560H762"/>
+    <path d="M980 648H910"/>
+  </g>
+
+  <!-- tank -->
+  <g stroke="#087F8C" stroke-width="3.5" stroke-linejoin="round">
+    <ellipse cx="900" cy="72" rx="82" ry="18" fill="#9AE0DA"/>
+    <path d="M818 72h164v66H818z" fill="#F7FAF8" stroke="none"/>
+    <path d="M818 72v66M982 72v66" fill="none"/>
+    <ellipse cx="900" cy="138" rx="82" ry="18" fill="#68C6C1"/>
+    <path d="M836 108h128" fill="none" stroke="#68C6C1" stroke-width="2.5" stroke-dasharray="6 5"/>
+  </g>
+  <text x="900" y="48" text-anchor="middle" fill="#122D3A" font-family="Avenir Next, Segoe UI, sans-serif" font-size="22" font-weight="700">Tank</text>
+
+  <!-- shower -->
+  <g stroke-linecap="round">
+    <circle cx="840" cy="330" r="12" fill="#9AE0DA" stroke="#087F8C" stroke-width="3"/>
+    <path d="M826 350v18M840 350v26M854 350v18" fill="none" stroke="#68C6C1" stroke-width="3"/>
+  </g>
+
+  <!-- heater: water in, amber element, power from the ceiling -->
+  <g>
+    <rect x="690" y="530" width="72" height="124" rx="30" fill="#F7FAF8" stroke="#087F8C" stroke-width="3.5"/>
+    <path d="M712 572h28l-12 18h28l-12 18h-32" fill="none" stroke="#FFC857" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <text x="726" y="678" text-anchor="middle" fill="#122D3A" font-family="Avenir Next, Segoe UI, sans-serif" font-size="20" font-weight="700">Heater</text>
+
+  <!-- tap and basin -->
+  <g fill="none" stroke="#122D3A" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M878 636v34h70"/>
+    <path d="M910 628v-36h26"/>
+  </g>
+  <circle cx="936" cy="586" r="6" fill="#68C6C1" stroke="#087F8C" stroke-width="3"/>
+
+  <!-- drain, trap, and outlet -->
+  <g fill="none" stroke="#087F8C" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M910 670v26h-36v24h150"/>
+    <path d="M1024 720h78" stroke-dasharray="9 7"/>
+  </g>
+  <path d="M1094 712l16 8-16 8z" fill="#087F8C"/>
+
+  <!-- consumer unit -->
+  <g>
+    <rect x="220" y="512" width="92" height="132" rx="7" fill="#122D3A"/>
+    <text x="266" y="542" text-anchor="middle" fill="#FFC857" font-family="Avenir Next, Segoe UI, sans-serif" font-size="18" font-weight="800">DB</text>
+    <path d="M240 564h52M240 586h52M240 608h52M240 630h52" stroke="#FFC857" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- wiring -->
+  <g fill="none" stroke="#FFC857" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M266 512V478H760"/>
+    <path d="M520 478v34"/>
+    <path d="M266 478V246H700"/>
+    <path d="M320 246v36"/>
+    <path d="M620 246v36"/>
+    <path d="M726 478v52"/>
+  </g>
+
+  <!-- lights -->
+  <g fill="#FFC857" stroke="#122D3A" stroke-width="2.5">
+    <g>
+      <circle cx="320" cy="286" r="13"/>
+      <path d="M320 264v-10M336 272l7-7M304 272l-7-7" fill="none" stroke="#FFC857" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g>
+      <circle cx="620" cy="286" r="13"/>
+      <path d="M620 264v-10M636 272l7-7M604 272l-7-7" fill="none" stroke="#FFC857" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g>
+      <circle cx="520" cy="516" r="13"/>
+      <path d="M520 494v-10M536 502l7-7M504 502l-7-7" fill="none" stroke="#FFC857" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- sockets -->
+  <g fill="#F7FAF8" stroke="#122D3A" stroke-width="2.5">
+    <rect x="530" y="340" width="30" height="36" rx="4"/>
+    <rect x="560" y="590" width="30" height="36" rx="4"/>
+    <circle cx="540" cy="354" r="2.6" fill="#FFC857" stroke="none"/>
+    <circle cx="550" cy="354" r="2.6" fill="#FFC857" stroke="none"/>
+    <circle cx="570" cy="604" r="2.6" fill="#FFC857" stroke="none"/>
+    <circle cx="580" cy="604" r="2.6" fill="#FFC857" stroke="none"/>
+  </g>
+
+  <g font-family="Avenir Next, Segoe UI, sans-serif" font-size="24" font-weight="700" fill="#122D3A">
+    <path d="M286 778h52" stroke="#FFC857" stroke-width="7" stroke-linecap="round"/>
+    <text x="350" y="786">Power</text>
+    <path d="M500 778h52" stroke="#68C6C1" stroke-width="7" stroke-linecap="round"/>
+    <text x="564" y="786">Supply</text>
+    <path d="M730 778h52" stroke="#087F8C" stroke-width="7" stroke-linecap="round" stroke-dasharray="8 6"/>
+    <text x="794" y="786">Drain</text>
+  </g>
+</svg>
