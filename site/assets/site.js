@@ -1,6 +1,6 @@
 // Nuru & Maji site script
-// Set your WhatsApp number here: country code + number, no "+" or spaces.
-var WHATSAPP_NUMBER = "2547YOURNUMBER";
+// Set a WhatsApp number to enable WhatsApp bookings; leave blank to use email.
+var WHATSAPP_NUMBER = "";
 var EMAIL = "hello@nurumaji.co.ke";
 
 (function () {
@@ -14,6 +14,9 @@ var EMAIL = "hello@nurumaji.co.ke";
       btn.textContent = open ? "Close" : "Menu";
     });
   }
+
+  var whatsappFloat = document.querySelector(".wa-float");
+  if (whatsappFloat && !WHATSAPP_NUMBER) whatsappFloat.hidden = true;
 
   // Footer year
   var y = document.querySelector("[data-year]");
@@ -63,9 +66,15 @@ var EMAIL = "hello@nurumaji.co.ke";
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     if (!validate()) { status.textContent = "Check the highlighted fields."; return; }
-    var url = "https://wa.me/" + WHATSAPP_NUMBER + "?text=" + encodeURIComponent(message());
-    status.textContent = "Opening WhatsApp with your booking. Press send there to confirm.";
-    window.open(url, "_blank", "noopener");
+    if (WHATSAPP_NUMBER) {
+      var url = "https://wa.me/" + WHATSAPP_NUMBER + "?text=" + encodeURIComponent(message());
+      status.textContent = "Opening WhatsApp with your booking. Press send there to confirm.";
+      window.open(url, "_blank", "noopener");
+    } else {
+      var emailUrl = "mailto:" + EMAIL + "?subject=" + encodeURIComponent("Booking request") + "&body=" + encodeURIComponent(message());
+      status.textContent = "Opening your email app with the booking filled in.";
+      window.location.href = emailUrl;
+    }
   });
 
   var alt = document.getElementById("email-alt");
