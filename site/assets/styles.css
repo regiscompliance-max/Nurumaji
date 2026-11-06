@@ -54,8 +54,11 @@ p{margin:0}
 .site-head{position:sticky;top:0;z-index:50;background:rgba(244,241,235,.94);backdrop-filter:saturate(1.2) blur(12px);-webkit-backdrop-filter:saturate(1.2) blur(12px);border-bottom:1px solid var(--rule)}
 .site-head .wrap{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:84px}
 .brand{display:flex;align-items:center;flex:0 0 auto;text-decoration:none;color:var(--ink)}
-.brand img{height:40px;width:170px;max-width:none}
+.brand img{height:52px;width:222px;max-width:none}
 .site-foot .brand img{height:34px;width:145px}
+@media (max-width:360px){
+  .site-head .brand img{height:46px;width:196px}
+}
 .nav{display:flex;align-items:center;gap:26px}
 .nav a{color:var(--slate);text-decoration:none;font-weight:500;font-size:15px;padding:10px 0;border-bottom:1px solid transparent}
 .nav a:hover{color:var(--ink)}
