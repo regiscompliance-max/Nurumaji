@@ -42,8 +42,19 @@ var EMAIL = "hello@nurumaji.co.ke";
 
   var params = new URLSearchParams(window.location.search);
   var sel = document.getElementById("f-service");
-  if (sel && params.get("service") === "care") sel.value = "Care plan enquiry";
-  if (sel && params.get("service") === "safety") sel.value = "Building safety check";
+  var serviceMap = {
+    care: "Care plan enquiry",
+    safety: "Building safety check",
+    tripping: "Electrical fault or repair",
+    sockets: "Electrical fault or repair",
+    lighting: "Lighting",
+    heater: "Water heater or shower",
+    leak: "Plumbing leak or repair",
+    drain: "Blocked drain or toilet",
+    tanks: "Tanks, pumps or pressure",
+    solar: "Solar or backup power"
+  };
+  if (sel && serviceMap[params.get("service")]) sel.value = serviceMap[params.get("service")];
 
   function message() {
     var f = form.elements;
@@ -53,6 +64,7 @@ var EMAIL = "hello@nurumaji.co.ke";
       "Name: " + f.name.value.trim(),
       "Phone: " + f.phone.value.trim(),
       "Area: " + f.area.value.trim(),
+      f.who && f.who.value ? "Who: " + f.who.value : "",
       "Service: " + f.service.value,
       "Urgency: " + f.urgency.value,
       f.details.value.trim() ? "Details: " + f.details.value.trim() : ""

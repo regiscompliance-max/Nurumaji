@@ -8,7 +8,7 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Cross-Origin-Opener-Policy: same-origin
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'sha256-ZiMD6RkqQKcozN54uz2/zjm3BruFN0rN0pXDutm7oLc=' 'sha256-rOjU/W0QixvQVsxxr+7p3luoyHooJyVWahkCGBeCq64=' 'sha256-LGgaNDt+5MND0o7cqGUKmHTF4Fu1Oh44DH9oPjwfdwo=' 'sha256-GOHzeM57GkCHLMLLQVY3eTSuhiVixW6vw4uFgl3/llE=' 'sha256-lY3go2jRxUYDf08tQ8SNcEstIvD2Tkdwaa4OQ2QY3uc=' 'sha256-xeyV4b9OAEnBexrmHVQW8J5vY0Dc1i/rGTCEcgqgexw=' 'sha256-IPRbJKc9Nw+G0s0dXApupT+qUPOq3woybg9N+Fw5fR4='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'sha256-ZtIpncAL363VNmZmZq4vxD2j1VdjJXTYKOzmXlFnjTw=' 'sha256-jvEawfOB94Ol/WCa3tNL3DKffZHPUeGtTnAlqSNfb74=' 'sha256-KRFYZWiDtyjyzDYRckDgV1KFEC37DE0EDewgPOKt2GA=' 'sha256-bfGGG8K6wrlvZxUojkhRjVaE+h2+3pzRgjOLz6ypQR0=' 'sha256-lY3go2jRxUYDf08tQ8SNcEstIvD2Tkdwaa4OQ2QY3uc=' 'sha256-MHhxiWO3CG1pEoVVronAJ77YENLOEbEqavF9CFyPafc=' 'sha256-8KFM4+tuZOzL+gh+8CkUIKQtOLmr8qFuVUmL3ZBj0VU='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; upgrade-insecure-requests
 
 # Photos, icons and self-hosted fonts change with the file, but names are not hashed.
 /assets/*
@@ -17,11 +17,14 @@
 /assets/fonts/*
   Cache-Control: public, max-age=2592000
 
-# CSS and JS are edited in place, so return visitors should pick up fixes within a day.
+# CSS and JS are edited in place. Detach first: /assets/* also matches these
+# files, and Cloudflare joins a repeated Cache-Control instead of replacing it.
 /assets/styles.css
+  ! Cache-Control
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
 /assets/site.js
+  ! Cache-Control
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
 /sitemap.xml
