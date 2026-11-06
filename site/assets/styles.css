@@ -53,15 +53,9 @@ p{margin:0}
 .topline a{color:var(--amber);text-decoration:none;font-weight:600}
 .site-head{position:sticky;top:0;z-index:50;background:rgba(244,241,235,.94);backdrop-filter:saturate(1.2) blur(12px);-webkit-backdrop-filter:saturate(1.2) blur(12px);border-bottom:1px solid var(--rule)}
 .site-head .wrap{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:84px}
-.brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--ink)}
-.brand::before{content:"";display:block;flex:0 0 40px;width:40px;height:40px;background:url("/assets/brand-mark.svg") center/contain no-repeat}
-.site-foot .brand::before{flex-basis:36px;width:36px;height:36px}
-.brand-name{font-family:var(--body);font-weight:700;font-size:15px;letter-spacing:.16em;line-height:1}
-.brand-name span{color:var(--teal)}
-.brand-light .brand-name{color:#fff}
-.brand-light .brand-name span{color:var(--amber)}
-.brand-sub{display:block;font-family:var(--body);font-size:11px;font-weight:500;color:var(--teal-text);margin-top:5px;letter-spacing:.08em;text-transform:uppercase}
-.brand-light .brand-sub{color:#A9CFCB}
+.brand{display:flex;align-items:center;flex:0 0 auto;text-decoration:none;color:var(--ink)}
+.brand img{height:40px;width:170px;max-width:none}
+.site-foot .brand img{height:34px;width:145px}
 .nav{display:flex;align-items:center;gap:26px}
 .nav a{color:var(--slate);text-decoration:none;font-weight:500;font-size:15px;padding:10px 0;border-bottom:1px solid transparent}
 .nav a:hover{color:var(--ink)}
@@ -255,8 +249,8 @@ p{margin:0}
 .foot-cols ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .site-foot a{color:var(--mist);text-decoration:none}
 .site-foot a:hover{color:#fff;text-decoration:underline}
+.site-foot .brand:hover{text-decoration:none}
 .foot-base{border-top:1px solid var(--ink-3);padding-top:22px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 24px;font-size:13px}
-.brand-light{color:#fff}
 
 .wa-float{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:60;width:56px;height:56px;border-radius:50%;background:#1F5C62;display:flex;align-items:center;justify-content:center}
 .stack{display:grid;gap:16px}
