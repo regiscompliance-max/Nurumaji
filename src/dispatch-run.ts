@@ -1,0 +1,226 @@
+import { offerSlots, rankCandidates, shouldFlag, haversineKm } from "./dispatch.mjs";
+import type { Bindings } from "./types";
+
+const MAX_OFFERS = 3;
+
+type JobRow = {
+  id: string;
+  trade: string;
+  urgency: string;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  status: string;
+  assigned_tech_id: string | null;
+  operator_flag: number;
+};
+
+type TechRow = {
+  user_id: string;
+  phone: string;
+  trades: string;
+  base_lat: number | null;
+  base_lng: number | null;
+  radius_km: number | null;
+  on_duty: number;
+  approved: number;
+  rating_avg: number;
+};
+
+export async function dispatchJob(env: Bindings, jobId: string): Promise<void> {
+  await offerNext(env, jobId);
+}
+
+export async function expireOffers(env: Bindings): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const due = await env.DB.prepare(
+    "SELECT id, job_id FROM job_offers WHERE status = 'offered' AND expires_at <= ?"
+  ).bind(now).all<{ id: string; job_id: string }>();
+  const rows = due.results ?? [];
+  for (const row of rows) {
+    await env.DB.prepare("UPDATE job_offers SET status = 'expired' WHERE id = ? AND status = 'offered'").bind(row.id).run();
+    await env.DB.prepare(
+      "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, NULL, 'offer_expired', ?, ?)"
+    ).bind(crypto.randomUUID(), row.job_id, "An offer expired", now).run();
+  }
+  const jobIds = [...new Set(rows.map((row) => row.job_id))];
+  for (const jobId of jobIds) await offerNext(env, jobId);
+}
+
+async function offerNext(env: Bindings, jobId: string): Promise<void> {
+  const job = await env.DB.prepare(
+    `SELECT id, trade, urgency, address, lat, lng, status, assigned_tech_id, operator_flag
+     FROM jobs WHERE id = ?`
+  ).bind(jobId).first<JobRow>();
+  if (!job || job.assigned_tech_id || job.status === "cancelled" || job.status === "completed") return;
+  if (job.lat == null || job.lng == null) {
+    await flagJob(env, job, "No location was shared, so it could not be offered by distance.");
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const timeout = Number(await setting(env, "offer_timeout_seconds", "600")) || 600;
+  const excludeBusy = (await setting(env, "exclude_busy_technicians", "1")) !== "0";
+  const counts = await env.DB.prepare(
+    `SELECT
+       COUNT(*) AS existing_offers,
+       SUM(CASE WHEN status = 'offered' AND expires_at > ? THEN 1 ELSE 0 END) AS open_offers
+     FROM job_offers WHERE job_id = ?`
+  ).bind(now, job.id).first<{ existing_offers: number; open_offers: number | null }>();
+  const existingOffers = counts?.existing_offers ?? 0;
+  const openOffers = counts?.open_offers ?? 0;
+  const slots = offerSlots({ urgency: job.urgency, existingOffers, openOffers, maxOffers: MAX_OFFERS });
+  const ranked = await eligibleTechnicians(env, job, excludeBusy);
+  const remaining = ranked.length;
+
+  if (slots <= 0 || remaining === 0) {
+    if (shouldFlag({ existingOffers, openOffers, remainingCandidates: remaining, maxOffers: MAX_OFFERS })) {
+      await flagJob(env, job, existingOffers >= MAX_OFFERS
+        ? "Three offers were made and none were accepted."
+        : "No approved technician on duty is within range.");
+    }
+    return;
+  }
+
+  const chosen = ranked.slice(0, slots);
+  for (const tech of chosen) {
+    const offerId = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO job_offers (id, job_id, tech_id, status, offered_at, expires_at)
+       VALUES (?, ?, ?, 'offered', ?, ?)`
+    ).bind(offerId, job.id, tech.userId, now, now + timeout).run();
+    const article = job.trade === "electrical" ? "An" : "A";
+    const message = `${article} ${job.trade} job is offered to you. Accept or decline it in the portal within ${Math.round(timeout / 60)} minutes.`;
+    await env.DB.prepare(
+      "INSERT INTO notifications (id, user_id, message, read, created_at) VALUES (?, ?, ?, 0, ?)"
+    ).bind(crypto.randomUUID(), tech.userId, message, now).run();
+    await sendDispatchSms(env, tech.phone, message);
+    await env.DB.prepare(
+      "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'offered', ?, ?)"
+    ).bind(crypto.randomUUID(), job.id, tech.userId, "Offered to a technician", now).run();
+  }
+  await env.DB.prepare(
+    "UPDATE jobs SET status = 'offered', operator_flag = 0, updated_at = ? WHERE id = ? AND assigned_tech_id IS NULL"
+  ).bind(now, job.id).run();
+}
+
+async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: boolean) {
+  const techs = await env.DB.prepare(
+    `SELECT users.id AS user_id, users.phone, technician_profiles.trades, technician_profiles.base_lat,
+            technician_profiles.base_lng, technician_profiles.radius_km, technician_profiles.on_duty,
+            technician_profiles.approved, technician_profiles.rating_avg
+     FROM technician_profiles
+     JOIN users ON users.id = technician_profiles.user_id
+     WHERE users.role = 'technician' AND users.status = 'active'
+       AND technician_profiles.approved = 1 AND technician_profiles.on_duty = 1`
+  ).all<TechRow>();
+  const already = await env.DB.prepare(
+    "SELECT tech_id FROM job_offers WHERE job_id = ?"
+  ).bind(job.id).all<{ tech_id: string }>();
+  const seen = new Set((already.results ?? []).map((row) => row.tech_id));
+  const busy = new Set<string>();
+  if (excludeBusy) {
+    const active = await env.DB.prepare(
+      `SELECT assigned_tech_id FROM jobs
+       WHERE assigned_tech_id IS NOT NULL AND status IN ('assigned', 'en_route', 'on_site')`
+    ).all<{ assigned_tech_id: string }>();
+    for (const row of active.results ?? []) busy.add(row.assigned_tech_id);
+  }
+  const candidates = [];
+  for (const tech of techs.results ?? []) {
+    if (seen.has(tech.user_id) || busy.has(tech.user_id)) continue;
+    if (!hasTrade(tech.trades, job.trade)) continue;
+    if (tech.base_lat == null || tech.base_lng == null || tech.radius_km == null) continue;
+    const distanceKm = haversineKm(job.lat as number, job.lng as number, tech.base_lat, tech.base_lng);
+    if (distanceKm > tech.radius_km) continue;
+    candidates.push({ userId: tech.user_id, phone: tech.phone, distanceKm, ratingAvg: tech.rating_avg ?? 0 });
+  }
+  return rankCandidates(candidates);
+}
+
+function hasTrade(trades: string, trade: string): boolean {
+  return trades.split(",").map((item) => item.trim()).includes(trade);
+}
+
+async function flagJob(env: Bindings, job: JobRow, note: string): Promise<void> {
+  if (job.operator_flag === 1) return;
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare("UPDATE jobs SET operator_flag = 1, updated_at = ? WHERE id = ?").bind(now, job.id).run();
+  await env.DB.prepare(
+    "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, NULL, 'needs_operator', ?, ?)"
+  ).bind(crypto.randomUUID(), job.id, note, now).run();
+}
+
+async function setting(env: Bindings, key: string, fallback: string): Promise<string> {
+  try {
+    const row = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>();
+    return row?.value || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function sendDispatchSms(env: Bindings, phone: string, message: string): Promise<void> {
+  if (env.OTP_DEV_MODE === "true") {
+    console.log(`[DISPATCH_SMS] ${phone} ${message}`);
+    return;
+  }
+  if (!env.AT_API_KEY || !env.AT_USERNAME || !env.AT_SENDER_ID) {
+    console.error("Dispatch SMS was not sent because Africa's Talking is not configured.");
+    return;
+  }
+  const body = new URLSearchParams({
+    username: env.AT_USERNAME,
+    to: phone,
+    message: `Nuru & Maji: ${message}`,
+    from: env.AT_SENDER_ID,
+  });
+  const response = await fetch("https://api.africastalking.com/version1/messaging", {
+    method: "POST",
+    headers: {
+      apiKey: env.AT_API_KEY,
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  if (!response.ok) console.error("Dispatch SMS failed.");
+}
+
+export async function acceptOffer(env: Bindings, offerId: string, techId: string): Promise<string | null> {
+  const now = Math.floor(Date.now() / 1000);
+  const offer = await env.DB.prepare(
+    `SELECT id, job_id FROM job_offers
+     WHERE id = ? AND tech_id = ? AND status = 'offered' AND expires_at > ?`
+  ).bind(offerId, techId, now).first<{ id: string; job_id: string }>();
+  if (!offer) return "That offer is no longer open.";
+  const claimed = await env.DB.prepare(
+    `UPDATE jobs SET status = 'assigned', assigned_tech_id = ?, operator_flag = 0, updated_at = ?
+     WHERE id = ? AND status = 'offered' AND assigned_tech_id IS NULL`
+  ).bind(techId, now, offer.job_id).run();
+  if (!claimed.meta.changes) return "Another technician already accepted.";
+  await env.DB.batch([
+    env.DB.prepare("UPDATE job_offers SET status = 'accepted' WHERE id = ?").bind(offer.id),
+    env.DB.prepare(
+      "UPDATE job_offers SET status = 'declined' WHERE job_id = ? AND status = 'offered' AND id != ?"
+    ).bind(offer.job_id, offer.id),
+    env.DB.prepare(
+      "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'assigned', ?, ?)"
+    ).bind(crypto.randomUUID(), offer.job_id, techId, "A technician accepted", now),
+  ]);
+  return null;
+}
+
+export async function declineOffer(env: Bindings, offerId: string, techId: string): Promise<string | null> {
+  const now = Math.floor(Date.now() / 1000);
+  const offer = await env.DB.prepare(
+    "SELECT id, job_id FROM job_offers WHERE id = ? AND tech_id = ? AND status = 'offered'"
+  ).bind(offerId, techId).first<{ id: string; job_id: string }>();
+  if (!offer) return "That offer is no longer open.";
+  await env.DB.prepare("UPDATE job_offers SET status = 'declined' WHERE id = ?").bind(offer.id).run();
+  await env.DB.prepare(
+    "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'offer_declined', ?, ?)"
+  ).bind(crypto.randomUUID(), offer.job_id, techId, "A technician declined", now).run();
+  await offerNext(env, offer.job_id);
+  return null;
+}

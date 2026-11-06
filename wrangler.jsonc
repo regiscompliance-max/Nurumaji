@@ -14,6 +14,12 @@
   "vars": {
     "APP_URL": "https://nurumaji.regiscompliance.workers.dev"
   },
+  // Starts when this Worker is deployed. It expires offers and offers the job
+  // to the next technician. It does not need a separate Cloudflare product,
+  // but D1 must already exist or the whole deploy fails.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   // The uploads bucket must exist before this is deployed. A missing bucket
   // fails the production deploy the same way a missing D1 database does.
   "r2_buckets": [

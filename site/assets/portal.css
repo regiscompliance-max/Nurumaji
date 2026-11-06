@@ -15,5 +15,7 @@
 .timeline time{color:var(--slate);font-size:13px}
 .photo-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .photo-row img{width:120px;height:90px;object-fit:cover;background:#fff}
+.trade-choice{display:flex;align-items:center;gap:10px;font-weight:650}
+.trade-choice input{width:22px;height:22px;accent-color:#1F5C62}
 #otp-verify{display:grid;gap:16px}
 #otp-verify[hidden]{display:none}

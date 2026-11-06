@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
+import { dispatchJob } from "./dispatch-run";
 import { readSession } from "./session";
 import { lookupService } from "./services.mjs";
 import type { AppContext, UserRow } from "./types";
@@ -74,6 +75,11 @@ jobs.post("/", async (c) => {
     }
   }
 
+  try {
+    await dispatchJob(c.env, id);
+  } catch (error) {
+    console.error(error);
+  }
   return c.json({ id, path: `/portal/jobs/${id}`, appUrl: appUrl(c) }, 201);
 });
 
@@ -99,7 +105,7 @@ jobs.get("/:id", async (c) => {
 jobs.get("/:id/photos/:photoId", async (c) => {
   const user = await readSession(c);
   if (!user) return c.json({ error: "Sign in required." }, 401);
-  const job = await ownJob(c, user, c.req.param("id"));
+  const job = await viewableJob(c, user, c.req.param("id"));
   if (!job) return c.json({ error: "Job not found." }, 404);
   if (!c.env.UPLOADS) return c.json({ error: "Photo storage is not connected yet." }, 503);
   const photo = await c.env.DB.prepare(
@@ -162,6 +168,20 @@ function appUrl(c: { env: AppContext["Bindings"]; req: { url: string } }): strin
   const configured = c.env.APP_URL?.trim().replace(/\/$/, "");
   if (configured) return configured;
   return new URL(c.req.url).origin;
+}
+
+async function viewableJob(c: { env: AppContext["Bindings"] }, user: UserRow, id: string): Promise<{ id: string } | null> {
+  const job = await c.env.DB.prepare(
+    "SELECT id, client_id, assigned_tech_id FROM jobs WHERE id = ?"
+  ).bind(id).first<{ id: string; client_id: string; assigned_tech_id: string | null }>();
+  if (!job) return null;
+  if (job.client_id === user.id) return job;
+  if (user.role !== "technician") return null;
+  if (job.assigned_tech_id === user.id) return job;
+  const offer = await c.env.DB.prepare(
+    "SELECT id FROM job_offers WHERE job_id = ? AND tech_id = ?"
+  ).bind(id, user.id).first();
+  return offer ? job : null;
 }
 
 async function ownJob(c: { env: AppContext["Bindings"] }, user: UserRow, id: string): Promise<JobRow | null> {

@@ -4,6 +4,7 @@ import { nowSeconds, safeEqual, sha256, randomCode } from "./crypto";
 import { normalizeKenyanMobile } from "./phone.mjs";
 import { endSession, readSession, startSession } from "./session";
 import { jobs } from "./jobs";
+import { technician } from "./technician";
 import { sendLoginCode } from "./sms";
 import type { AppContext, UserRow } from "./types";
 
@@ -151,6 +152,7 @@ api.post("/me", async (c) => {
 });
 
 api.route("/jobs", jobs);
+api.route("/technician", technician);
 
 async function readJson(c: { req: { json: () => Promise<unknown> } }): Promise<unknown> {
   try {
