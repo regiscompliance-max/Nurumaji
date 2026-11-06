@@ -41,10 +41,9 @@ var EMAIL = "hello@nurumaji.co.ke";
   if (!form) return;
 
   var params = new URLSearchParams(window.location.search);
-  if (params.get("service") === "care") {
-    var sel = document.getElementById("f-service");
-    if (sel) sel.value = "Care plan enquiry";
-  }
+  var sel = document.getElementById("f-service");
+  if (sel && params.get("service") === "care") sel.value = "Care plan enquiry";
+  if (sel && params.get("service") === "safety") sel.value = "Building safety check";
 
   function message() {
     var f = form.elements;
