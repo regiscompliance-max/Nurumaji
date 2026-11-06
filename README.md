@@ -121,6 +121,25 @@ The public pages stay static. `/`, unknown URLs (the 404 page), and `/assets/*` 
 - [ ] Quote approval and rating controls are visible. Approving a `sent` quote and rating a `completed` job write a timeline event. They do nothing until that data exists.
 - [ ] Homepage Lighthouse on mobile stays in the high 90s or at 100, and the JSON-LD hashes in `site/_headers` still match.
 
+The Worker also runs a cron trigger every minute (`* * * * *`). It expires offers and offers the job to the next technician. Cloudflare starts that schedule on deploy. It does not need its own database or bucket, but the deploy still fails if D1 or the uploads bucket is missing.
+
+## Phase 3 test checklist
+
+- [ ] `npm test` includes the distance and offer-order checks.
+- [ ] A technician can save trades, a base location, a radius, and switch on duty. The profile stays unapproved until an admin approves it, so it receives no offers yet.
+- [ ] With an approved, on-duty technician inside the radius, creating a job offers it to the nearest one and sets the job to `offered`. The text is logged when `OTP_DEV_MODE=true`.
+- [ ] The technician can accept or decline. Accepting assigns the job. Declining, or waiting out the 10-minute window, offers it to the next person.
+- [ ] An emergency job is offered to the top three at once. The first acceptance assigns it and closes the other offers.
+- [ ] After three offers with no acceptance, or when nobody is in range, the job is flagged. The operator dashboard lists that status and does not assign by hand.
+- [ ] The assigned technician can mark on the way, on site, and completed, with a note, materials, minutes, and an optional photo.
+- [ ] A technician cannot open another person's job. The public homepage is unchanged.
+- [ ] A technician, operator, or admin can upload a JPG, PNG, or WebP profile photo. It is stored under `technician-photos/` and served only through the Worker.
+- [ ] After a job is assigned, that client sees the technician's photo, first name, and trade. Another client does not. Cancelling or reassigning the job hides it. With no photo, the page shows initials, not a picture of a person.
+
+The onboarding selfie and certificate files from the later `/join` flow are still private documents. This profile photo is the picture the client sees once someone is assigned.
+
+Local dispatch checks use `node scripts/seed-dispatch-local.mjs`. It refuses `--remote` and only creates the obvious test numbers `+254700000301`, `+254700000302`, `+254700000303`, and `+254700000304`.
+
 ## Not in this phase
 
-Dispatch, the operator board, admin tools, the installable app, and payments.
+The full operator board, quotes, invoices, admin approval screens, the technician application at `/join`, the installable app, and payments.
