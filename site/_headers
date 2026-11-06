@@ -8,7 +8,7 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Cross-Origin-Opener-Policy: same-origin
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'sha256-xf7v39RJ0XNxr1GFo1qXOO4IsoKBrBXrrActi+872l4=' 'sha256-BUi9Ac6rrN7dwxYBeK/TSvjM2ZNm5VfZbFaFU8Q58hI=' 'sha256-hYYIvQ7ILo0fAReIaqS9s/4BhPB01W2etGo7hAf/kNU=' 'sha256-vScOFEbfYcHXOzxNKjQl3XwoJ9x7gZm2a5kce71QFWo=' 'sha256-lY3go2jRxUYDf08tQ8SNcEstIvD2Tkdwaa4OQ2QY3uc=' 'sha256-zJOrokCZb/HQZ94tRsTnxbx0aLqLdMztLkDP1fMrZok=' 'sha256-S1cw1FfyHtc0aavAq4KdKuwsXqgmHOiOOepVcEQCu2s='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'sha256-ZiMD6RkqQKcozN54uz2/zjm3BruFN0rN0pXDutm7oLc=' 'sha256-rOjU/W0QixvQVsxxr+7p3luoyHooJyVWahkCGBeCq64=' 'sha256-LGgaNDt+5MND0o7cqGUKmHTF4Fu1Oh44DH9oPjwfdwo=' 'sha256-GOHzeM57GkCHLMLLQVY3eTSuhiVixW6vw4uFgl3/llE=' 'sha256-lY3go2jRxUYDf08tQ8SNcEstIvD2Tkdwaa4OQ2QY3uc=' 'sha256-xeyV4b9OAEnBexrmHVQW8J5vY0Dc1i/rGTCEcgqgexw=' 'sha256-IPRbJKc9Nw+G0s0dXApupT+qUPOq3woybg9N+Fw5fR4='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; upgrade-insecure-requests
 
 # Photos, icons and self-hosted fonts change with the file, but names are not hashed.
 /assets/*
