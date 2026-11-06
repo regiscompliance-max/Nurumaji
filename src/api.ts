@@ -3,13 +3,14 @@ import { z } from "zod";
 import { nowSeconds, safeEqual, sha256, randomCode } from "./crypto";
 import { normalizeKenyanMobile } from "./phone.mjs";
 import { endSession, readSession, startSession } from "./session";
+import { jobs } from "./jobs";
 import { sendLoginCode } from "./sms";
 import type { AppContext, UserRow } from "./types";
 
 const CODE_TTL = 5 * 60;
 const REQUEST_WINDOW = 15 * 60;
 const MAX_REQUESTS_PER_PHONE = 3;
-const MAX_REQUESTS_PER_IP = 8;
+const MAX_REQUESTS_PER_IP = 15;
 const MAX_ATTEMPTS = 5;
 
 const requestSchema = z.object({ phone: z.string().trim().min(9).max(20) });
@@ -131,8 +132,25 @@ api.post("/auth/logout", async (c) => {
 api.get("/me", async (c) => {
   const user = await readSession(c);
   if (!user) return c.json({ error: "Sign in required." }, 401);
-  return c.json({ id: user.id, phone: user.phone, name: user.name, role: user.role });
+  return c.json({
+    id: user.id,
+    phone: user.phone,
+    name: user.name,
+    role: user.role,
+    appUrl: c.env.APP_URL?.trim().replace(/\/$/, "") || new URL(c.req.url).origin,
+  });
 });
+
+api.post("/me", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.json({ error: "Sign in required." }, 401);
+  const parsed = z.object({ name: z.string().trim().min(1).max(80) }).safeParse(await readJson(c));
+  if (!parsed.success) return c.json({ error: "Enter your name." }, 400);
+  await c.env.DB.prepare("UPDATE users SET name = ? WHERE id = ?").bind(parsed.data.name, user.id).run();
+  return c.json({ ok: true, name: parsed.data.name });
+});
+
+api.route("/jobs", jobs);
 
 async function readJson(c: { req: { json: () => Promise<unknown> } }): Promise<unknown> {
   try {

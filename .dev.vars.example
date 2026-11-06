@@ -1,3 +1,5 @@
 # Copy to .dev.vars for local `wrangler dev` only.
 # Do not set OTP_DEV_MODE on production. It prints login codes in the Worker log.
 OTP_DEV_MODE=true
+# Overrides the workers.dev APP_URL while you are on wrangler dev.
+APP_URL=http://127.0.0.1:8787

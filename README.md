@@ -1,10 +1,15 @@
 # Nurumaji
 
-Public website and the Phase 1 client portal, served by one Cloudflare Worker.
+Public website and the client portal, served by one Cloudflare Worker. Phase 2 adds booking.
 
 ## Portal setup
 
-Do this before merging to `main`. A production deploy with the placeholder D1 id fails. A failed deploy does not replace the Worker that is already live, so the public site stays on the last successful deployment, but nothing new goes out until the database id is real.
+Do this before merging to `main`. Both of these must exist in the Cloudflare account or the automatic production deploy fails:
+
+- D1 database `nurumaji-db`, with its real id pasted over the placeholder in `wrangler.jsonc`
+- R2 bucket `nurumaji-uploads` (the Worker binds it as `UPLOADS`)
+
+A failed deploy does not replace the Worker that is already live, so the public site stays on the last successful deployment. Nothing in this branch goes out until a deploy succeeds.
 
 ### 1. Install
 
@@ -29,7 +34,7 @@ npx wrangler d1 migrations apply nurumaji-db --remote
 
 ### 4. Create the uploads bucket
 
-Phase 1 does not bind R2, because a missing bucket would also fail the deploy. Create it now so later phases can attach it:
+Phase 2 binds this bucket. Create it before merging or deploying:
 
 ```bash
 npx wrangler r2 bucket create nurumaji-uploads
@@ -53,11 +58,11 @@ cp .dev.vars.example .dev.vars
 
 `.dev.vars` is gitignored. With `OTP_DEV_MODE=true`, the 6-digit code is printed in the `wrangler dev` log as `[OTP_DEV_MODE]`.
 
-`APP_URL` is reserved for later phases (for example `https://nurumaji.co.ke`). It is not required for Phase 1.
+`APP_URL` is set in `wrangler.jsonc` to `https://nurumaji.regiscompliance.workers.dev`. Change that value when the custom domain is attached. Pages and the API use relative links, so sign-in still works if you have not changed it. Local `.dev.vars` can set `APP_URL=http://127.0.0.1:8787`.
 
 ### 6. Deploy
 
-Only after the real `database_id` is in `wrangler.jsonc` and the remote migration has been applied:
+Only after the real `database_id` is in `wrangler.jsonc`, the R2 bucket exists, and the remote migration has been applied:
 
 ```bash
 npx wrangler deploy
@@ -105,6 +110,17 @@ The public pages stay static. `/`, unknown URLs (the 404 page), and `/assets/*` 
 - [ ] Sign out clears the cookie and returns to `/portal/login`.
 - [ ] With `OTP_DEV_MODE` unset and the Africa's Talking secrets missing, a code request returns 503 and does not reveal a code.
 
+## Phase 2 test checklist
+
+- [ ] The header shows Client Login, and it opens `/portal/login`. The footer has Track my job.
+- [ ] A logged-out “Request a proposal”, “For homes” job, or urgent-help link opens `/book` with the service or urgency filled in. The contact page still sends email.
+- [ ] On `/book`, the code step creates the user, saves the name, creates the job, and lands on the client dashboard. The timeline says the request was received.
+- [ ] A signed-in visit to `/portal/book` shows the full form: trade, description, urgency, address, Use my location, preferred time, and optional photos.
+- [ ] A job with a photo stores the file in R2 and the client can open it. Another client cannot.
+- [ ] More than 8 jobs in an hour for one user, or 20 from one connection, returns 429.
+- [ ] Quote approval and rating controls are visible. Approving a `sent` quote and rating a `completed` job write a timeline event. They do nothing until that data exists.
+- [ ] Homepage Lighthouse on mobile stays in the high 90s or at 100, and the JSON-LD hashes in `site/_headers` still match.
+
 ## Not in this phase
 
-Booking, website “Client Login” links, dispatch, quotes, admin tools, the installable app, and payments. The job tables exist so those phases have a place to store data, and nothing writes to them yet.
+Dispatch, the operator board, admin tools, the installable app, and payments.

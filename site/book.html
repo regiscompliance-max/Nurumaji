@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en-KE">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Request a visit | Nuru &amp; Maji</title>
+<meta name="description" content="Request electrical or plumbing work in Nairobi. We send a code to your phone, then open your job on the dashboard.">
+<link rel="canonical" href="https://nurumaji.co.ke/book">
+<meta name="theme-color" content="#10242E">
+<link rel="icon" href="/assets/favicon.svg?v=20261106" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon-32.png?v=20261106" type="image/png" sizes="32x32">
+<link rel="icon" href="/assets/favicon-16.png?v=20261106" type="image/png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261106">
+<link rel="stylesheet" href="/assets/styles.css?v=20261106b">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="topline"><div class="wrap"><span>Electrical and plumbing services across Nairobi and nearby towns</span><a href="/portal/book">Request a quote</a></div></div>
+<header class="site-head">
+<div class="wrap">
+<a class="brand" href="/"><img src="/assets/logo-lockup.svg?v=20261106" width="222" height="52" alt="Nuru &amp; Maji"></a>
+<button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+<nav class="nav" id="site-nav" aria-label="Main"><a href="/">Home</a><a href="/electrical">Electrical</a><a href="/plumbing">Plumbing</a><a href="/plans">Care plans</a><a href="/about">About</a><a href="/contact">Contact</a><a class="btn btn-amber" href="/portal/book">Request a proposal</a></nav>
+<div class="head-actions"><a class="head-login" href="/portal/login">Client Login</a><a class="btn btn-amber head-cta" href="/portal/book">Request a proposal</a></div>
+</div>
+</header>
+<main id="main">
+<section class="page-head"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="/">Home</a> / Request a visit</nav><h1>Request a visit</h1><p class="lede">Tell us your name, number, and what needs doing. We text you a code, then open the job on your dashboard. The email form on the contact page is still there if you prefer it.</p></div></section>
+<section class="band"><div class="wrap" style="max-width:720px">
+<form id="book-details" class="form">
+<div class="field"><label for="name">Your name</label><input id="name" name="name" autocomplete="name" required></div>
+<div class="field"><label for="phone">Mobile number</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="07XX XXX XXX" required></div>
+<div class="field"><label for="service">Service</label><select id="service" name="service" required>
+<option value="electrical">Electrical work</option>
+<option value="plumbing">Plumbing work</option>
+<option value="tripping">Power outages and tripping</option>
+<option value="sockets">Faulty sockets and switches</option>
+<option value="lighting">Lighting</option>
+<option value="solar">Solar backup</option>
+<option value="heater">Water heaters and showers</option>
+<option value="leak">Leaks and burst pipes</option>
+<option value="drain">Blocked drains and toilets</option>
+<option value="tanks">Tanks and booster pumps</option>
+<option value="safety">Building safety check</option>
+</select></div>
+<div class="field"><label for="description">What needs doing?</label><textarea id="description" name="description" required minlength="8" maxlength="2000" placeholder="For example, the kitchen sockets trip when the kettle is on."></textarea></div>
+<button class="btn btn-amber" type="submit">Send code</button>
+</form>
+<form id="book-verify" class="form" hidden>
+<div class="field"><label for="code">6-digit code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div>
+<button class="btn btn-amber" type="submit">Create the request</button>
+</form>
+<p class="status" id="book-status" role="status"></p>
+<p class="muted">Prefer email? Use the <a href="/contact">contact form</a>.</p>
+</div></section>
+</main>
+<footer class="site-foot">
+<div class="wrap">
+<div class="foot-cols">
+<div style="display:grid;gap:16px;align-content:start">
+<a class="brand brand-light" href="/"><img src="/assets/logo-lockup-reversed.svg?v=20261106" width="145" height="34" alt="Nuru &amp; Maji"></a>
+<p>Tested power. Reliable water.<br>Umeme salama, maji safi.</p>
+</div>
+<div><h2>Services</h2><ul><li><a href="/electrical">Electrical</a></li><li><a href="/plumbing">Plumbing</a></li><li><a href="/plans">Care plans</a></li><li><a href="/portal/book?urgency=emergency">Emergency call-outs</a></li></ul></div>
+<div><h2>Company</h2><ul><li><a href="/about">About us</a></li><li><a href="/legal">Privacy and service terms</a></li><li><a href="/portal/book">Book a technician</a></li></ul></div>
+<div><h2>Contact</h2><ul><li><a href="/contact">Contact us</a></li><li><a href="mailto:hello@nurumaji.co.ke">hello@nurumaji.co.ke</a></li><li>Nairobi, Kenya</li></ul></div>
+</div>
+<div class="foot-base"><span>© <span data-year>2026</span> Nuru &amp; Maji. All rights reserved. <a href="/portal">Track my job</a></span><span>Service scope, pricing and any workmanship cover are confirmed in your written quote.</span></div>
+</div>
+</footer>
+<script src="/assets/book.js?v=20261106b" defer></script>
+<script src="/assets/site.js?v=20261106" defer></script>
+</body>
+</html>
