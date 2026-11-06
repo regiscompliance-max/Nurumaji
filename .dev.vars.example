@@ -1,0 +1,3 @@
+# Copy to .dev.vars for local `wrangler dev` only.
+# Do not set OTP_DEV_MODE on production. It prints login codes in the Worker log.
+OTP_DEV_MODE=true
