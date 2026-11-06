@@ -1,9 +1,24 @@
 {
   "name": "nurumaji",
+  "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
+  // The public site is still served as static assets, including _headers and
+  // the 404 page. The Worker runs first only for the portal and the API.
   "assets": {
     "directory": "./site",
+    "binding": "ASSETS",
     "html_handling": "drop-trailing-slash",
-    "not_found_handling": "404-page"
-  }
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*", "/portal", "/portal/*"]
+  },
+  // Do not merge a placeholder database_id to main. Create the database first
+  // and paste the real id here. A missing or fake id fails the production deploy.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nurumaji-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
