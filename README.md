@@ -133,6 +133,10 @@ The Worker also runs a cron trigger every minute (`* * * * *`). It expires offer
 - [ ] After three offers with no acceptance, or when nobody is in range, the job is flagged. The operator dashboard lists that status and does not assign by hand.
 - [ ] The assigned technician can mark on the way, on site, and completed, with a note, materials, minutes, and an optional photo.
 - [ ] A technician cannot open another person's job. The public homepage is unchanged.
+- [ ] A technician, operator, or admin can upload a JPG, PNG, or WebP profile photo. It is stored under `technician-photos/` and served only through the Worker.
+- [ ] After a job is assigned, that client sees the technician's photo, first name, and trade. Another client does not. Cancelling or reassigning the job hides it. With no photo, the page shows initials, not a picture of a person.
+
+The onboarding selfie and certificate files from the later `/join` flow are still private documents. This profile photo is the picture the client sees once someone is assigned.
 
 Local dispatch checks use `node scripts/seed-dispatch-local.mjs`. It refuses `--remote` and only creates the obvious test numbers `+254700000301`, `+254700000302`, `+254700000303`, and `+254700000304`.
 

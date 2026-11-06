@@ -4,6 +4,7 @@ import { nowSeconds, safeEqual, sha256, randomCode } from "./crypto";
 import { normalizeKenyanMobile } from "./phone.mjs";
 import { endSession, readSession, startSession } from "./session";
 import { jobs } from "./jobs";
+import { storeTechnicianPhoto } from "./portrait";
 import { technician } from "./technician";
 import { sendLoginCode } from "./sms";
 import type { AppContext, UserRow } from "./types";
@@ -151,8 +152,67 @@ api.post("/me", async (c) => {
   return c.json({ ok: true, name: parsed.data.name });
 });
 
+api.get("/technicians/:id/photo", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.json({ error: "Sign in required." }, 401);
+  const techId = c.req.param("id");
+  const allowed = await canSeeTechnicianPhoto(c.env, user, techId);
+  if (!allowed) return c.json({ error: "Photo not found." }, 404);
+  const profile = await c.env.DB.prepare(
+    "SELECT photo_key FROM technician_profiles WHERE user_id = ?"
+  ).bind(techId).first<{ photo_key: string | null }>();
+  if (!profile?.photo_key || !c.env.UPLOADS) return c.json({ error: "Photo not found." }, 404);
+  const object = await c.env.UPLOADS.get(profile.photo_key);
+  if (!object) return c.json({ error: "Photo not found." }, 404);
+  const headers = new Headers();
+  headers.set("Content-Type", object.httpMetadata?.contentType || "image/jpeg");
+  headers.set("Cache-Control", "private, no-cache");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return new Response(object.body, { headers });
+});
+
+api.post("/technicians/:id/photo", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.json({ error: "Sign in required." }, 401);
+  if (user.role !== "operator" && user.role !== "admin") return c.json({ error: "Staff only." }, 403);
+  const tech = await c.env.DB.prepare(
+    "SELECT id FROM users WHERE id = ? AND role = 'technician'"
+  ).bind(c.req.param("id")).first();
+  if (!tech) return c.json({ error: "Technician not found." }, 404);
+  const file = await portraitFile(c);
+  if (!file) return c.json({ error: "Choose a photo." }, 400);
+  const stored = await storeTechnicianPhoto(c.env, c.req.param("id"), file);
+  if (typeof stored !== "string") return c.json({ error: stored.error }, 400);
+  if (!c.req.header("accept")?.includes("application/json")) {
+    return c.redirect(user.role === "admin" ? "/portal/admin" : "/portal/operator", 303);
+  }
+  return c.json({ ok: true });
+});
+
 api.route("/jobs", jobs);
 api.route("/technician", technician);
+
+async function canSeeTechnicianPhoto(env: AppContext["Bindings"], viewer: UserRow, techId: string): Promise<boolean> {
+  if (viewer.id === techId || viewer.role === "operator" || viewer.role === "admin") return true;
+  if (viewer.role !== "client") return false;
+  const job = await env.DB.prepare(
+    `SELECT id FROM jobs
+     WHERE client_id = ? AND assigned_tech_id = ?
+       AND status IN ('assigned', 'en_route', 'on_site', 'completed', 'invoiced', 'paid')
+     LIMIT 1`
+  ).bind(viewer.id, techId).first();
+  return Boolean(job);
+}
+
+async function portraitFile(c: { req: { formData: () => Promise<FormData> } }): Promise<File | null> {
+  try {
+    const form = await c.req.formData();
+    const file = form.get("photo");
+    return file instanceof File && file.size > 0 ? file : null;
+  } catch {
+    return null;
+  }
+}
 
 async function readJson(c: { req: { json: () => Promise<unknown> } }): Promise<unknown> {
   try {

@@ -208,9 +208,15 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
 
 export async function loadClientJobs(c: { env: AppContext["Bindings"] }, userId: string) {
   const listed = await c.env.DB.prepare(
-    `SELECT id, trade, description, urgency, status, address, preferred_time, created_at
-     FROM jobs WHERE client_id = ? ORDER BY created_at DESC`
-  ).bind(userId).all<JobRow>();
+    `SELECT jobs.id, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
+            jobs.preferred_time, jobs.created_at, jobs.assigned_tech_id,
+            tech.name AS tech_name,
+            CASE WHEN technician_profiles.photo_key IS NOT NULL AND technician_profiles.photo_key != '' THEN 1 ELSE 0 END AS tech_has_photo
+     FROM jobs
+     LEFT JOIN users AS tech ON tech.id = jobs.assigned_tech_id
+     LEFT JOIN technician_profiles ON technician_profiles.user_id = jobs.assigned_tech_id
+     WHERE jobs.client_id = ? ORDER BY jobs.created_at DESC`
+  ).bind(userId).all<JobRow & { assigned_tech_id: string | null; tech_name: string | null; tech_has_photo: number }>();
   const jobs = listed.results ?? [];
   const detailed = [];
   for (const job of jobs) {

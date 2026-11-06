@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
 import { acceptOffer, declineOffer } from "./dispatch-run";
+import { storeTechnicianPhoto } from "./portrait";
 import { readSession } from "./session";
 import type { AppContext } from "./types";
 
@@ -45,6 +46,23 @@ technician.get("/profile", async (c) => {
     "SELECT trades, base_lat, base_lng, radius_km, on_duty, approved, rating_avg, rating_count FROM technician_profiles WHERE user_id = ?"
   ).bind(user.id).first();
   return c.json({ profile: profile ?? null });
+});
+
+technician.post("/photo", async (c) => {
+  const user = c.get("user");
+  let file: File | null = null;
+  try {
+    const form = await c.req.formData();
+    const value = form.get("photo");
+    if (value instanceof File && value.size > 0) file = value;
+  } catch {
+    file = null;
+  }
+  if (!file) return c.json({ error: "Choose a photo." }, 400);
+  const stored = await storeTechnicianPhoto(c.env, user.id, file);
+  if (typeof stored !== "string") return c.json({ error: stored.error }, 400);
+  if (wantsHtml(c)) return c.redirect("/portal/technician", 303);
+  return c.json({ ok: true });
 });
 
 technician.post("/profile", async (c) => {
