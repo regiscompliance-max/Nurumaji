@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { detailPage, invitePage, queuePage } from "./application-pages";
+import { staffDetail, staffQueue } from "./join-api";
 import { loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
 import { lookupService } from "./services.mjs";
@@ -93,6 +95,56 @@ for (const role of ["client", "technician", "operator", "admin"] as const) {
   });
 }
 
+portal.get("/applications", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.redirect("/portal/login", 303);
+  if (user.role !== "admin" && user.role !== "operator") return c.html(forbiddenPage(user.role), 403);
+  const items = await staffQueue(c.env, { status: c.req.query("status"), trade: c.req.query("trade"), area: c.req.query("area") });
+  const setting = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'probation_completed_jobs'").first<{ value: string }>();
+  return c.html(page("Applications", shell(user.phone, queuePage(items, {
+    status: c.req.query("status") || "",
+    trade: c.req.query("trade") || "",
+    area: c.req.query("area") || "",
+  }, setting?.value || ""))));
+});
+
+portal.get("/applications/invites", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.redirect("/portal/login", 303);
+  if (user.role !== "admin") return c.html(forbiddenPage(user.role), 403);
+  return c.html(page("Invite", shell(user.phone, invitePage())));
+});
+
+portal.get("/applications/:id", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.redirect("/portal/login", 303);
+  if (user.role !== "admin" && user.role !== "operator") return c.html(forbiddenPage(user.role), 403);
+  const detail = await staffDetail(c.env, c.req.param("id"));
+  if (!detail) return c.html(page("Application", shell(user.phone, "<h1>Application not found</h1>")), 404);
+  const personal = detail.application.personal_json ? JSON.parse(detail.application.personal_json) as Record<string, unknown> : {};
+  return c.html(page("Application", shell(user.phone, detailPage({
+    id: detail.application.id,
+    status: detail.application.status,
+    phone: detail.phone,
+    role: detail.role,
+    approved: detail.approved,
+    personal,
+    trades: detail.application.trades || "",
+    experience: detail.application.experience_years,
+    specialisms: detail.application.specialisms || "",
+    tools: detail.application.tools,
+    transport: detail.application.transport || "",
+    baseLat: detail.application.base_lat,
+    baseLng: detail.application.base_lng,
+    radius: detail.application.radius_km,
+    availability: detail.application.availability_json,
+    mpesa: detail.application.mpesa_number || "",
+    references: detail.application.references_json,
+    reason: detail.application.decision_reason,
+    documents: detail.documents,
+  }))));
+});
+
 portal.all("*", (c) => c.html(page("Not found", "<main class=\"portal-card\"><h1>Page not found</h1><p><a href=\"/portal\">Back to the portal</a></p></main>"), 404));
 
 async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { id: string; phone: string; name: string | null }): Promise<string> {
@@ -146,6 +198,7 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
   return page("Your offers", shell(user.phone, `
     <p class="eyebrow">Technician</p>
     <h1>Your offers</h1>
+    ${await renewalBanner(c, user.id)}
     <form class="portrait-form" method="post" action="/api/technician/photo" enctype="multipart/form-data">
       ${portrait}
       <div class="field"><label for="portrait">Profile photo</label><input id="portrait" name="photo" type="file" accept="image/jpeg,image/png,image/webp" required></div>
@@ -191,6 +244,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"] }, user: { pho
   return page("Dispatch", shell(user.phone, `
     <p class="eyebrow">Operator</p>
     <h1>Dispatch</h1>
+    <p><a href="/portal/applications">Review applications</a></p>
     <p class="lede">Offers go out by distance. This list is the status only. Assigning a job by hand comes later.</p>
     <div class="job-stack">${items}</div>
     <h2>Technicians</h2>
@@ -203,9 +257,24 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
   return page("Administration", shell(user.phone, `
     <p class="eyebrow">Admin</p>
     <h1>Administration</h1>
+    <p><a href="/portal/applications">Review applications</a></p>
     <p class="lede">Other admin tools are not switched on yet. Technician photos can be replaced here.</p>
     <div class="job-stack">${roster}</div>
   `));
+}
+
+async function renewalBanner(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi" }).format(new Date());
+  const expired = await c.env.DB.prepare(
+    "SELECT id FROM technician_documents WHERE user_id = ? AND expiry_date IS NOT NULL AND expiry_date < ? LIMIT 1"
+  ).bind(userId, today).first();
+  if (!expired) return "";
+  return `<div class="portal-empty"><h2>Licence expired</h2><p>Upload the renewal. An admin checks it before you can receive new offers.</p>
+    <form method="post" action="/api/join/renewal" enctype="multipart/form-data" class="form">
+      <div class="field"><label for="renewal-file">Renewed licence</label><input id="renewal-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required></div>
+      <div class="field"><label for="renewal-expiry">New expiry date</label><input id="renewal-expiry" name="expiryDate" type="date" required></div>
+      <button class="btn btn-amber" type="submit">Upload renewal</button>
+    </form></div>`;
 }
 
 async function technicianRoster(c: { env: AppContext["Bindings"] }, canReplace: boolean): Promise<string> {

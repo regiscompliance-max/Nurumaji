@@ -133,9 +133,25 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
     if (tech.base_lat == null || tech.base_lng == null || tech.radius_km == null) continue;
     const distanceKm = haversineKm(job.lat as number, job.lng as number, tech.base_lat, tech.base_lng);
     if (distanceKm > tech.radius_km) continue;
+    if (await probationBlocks(env, tech.user_id, job.urgency)) continue;
     candidates.push({ userId: tech.user_id, phone: tech.phone, distanceKm, ratingAvg: tech.rating_avg ?? 0 });
   }
   return rankCandidates(candidates);
+}
+
+async function probationBlocks(env: Bindings, userId: string, urgency: string): Promise<boolean> {
+  if (urgency === "standard") return false;
+  const probation = await env.DB.prepare(
+    "SELECT id FROM technician_applications WHERE user_id = ? AND status = 'probation' LIMIT 1"
+  ).bind(userId).first();
+  if (!probation) return false;
+  const requiredText = await setting(env, "probation_completed_jobs", "");
+  const required = Number(requiredText);
+  if (!Number.isInteger(required) || required <= 0) return true;
+  const done = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM jobs WHERE assigned_tech_id = ? AND status IN ('completed', 'invoiced', 'paid')"
+  ).bind(userId).first<{ n: number }>();
+  return (done?.n ?? 0) < required;
 }
 
 function hasTrade(trades: string, trade: string): boolean {

@@ -136,10 +136,36 @@ The Worker also runs a cron trigger every minute (`* * * * *`). It expires offer
 - [ ] A technician, operator, or admin can upload a JPG, PNG, or WebP profile photo. It is stored under `technician-photos/` and served only through the Worker.
 - [ ] After a job is assigned, that client sees the technician's photo, first name, and trade. Another client does not. Cancelling or reassigning the job hides it. With no photo, the page shows initials, not a picture of a person.
 
-The onboarding selfie and certificate files from the later `/join` flow are still private documents. This profile photo is the picture the client sees once someone is assigned.
+The onboarding selfie and certificate files from `/join` stay private. This profile photo is the picture the client sees once someone is assigned. They are different files.
 
 Local dispatch checks use `node scripts/seed-dispatch-local.mjs`. It refuses `--remote` and only creates the obvious test numbers `+254700000301`, `+254700000302`, `+254700000303`, and `+254700000304`.
 
+## Technician onboarding
+
+Apply migration `0005_technician_applications.sql` with the same local and remote D1 commands as the earlier migrations. It adds `technician_applications`, `technician_documents`, and `invites`. `applicant_status` is `technician_applications.status`. The phone login endpoints are unchanged. A verified phone on `/join` creates the draft application. The role stays `client` until an admin or operator approves it.
+
+The daily licence check uses the existing every-minute cron. It does not add a second schedule. Inside the scheduled handler it runs at most once per Africa/Nairobi day and stores that date in `settings.licence_check_on`. No new secret is required. Uploads still use the existing `nurumaji-uploads` bucket.
+
+`/join` is a static page. Its script and stylesheet are versioned (`?v=20261106e`) and use the one-day cache rule. The page allows geolocation for this path only (`geolocation=(self)`), so “Use my location” can fill the base coordinates. There is no interactive map, because a map tile host would need a CSP change.
+
+Probation length is the admin setting `probation_completed_jobs` on the Applications page. Leave it blank until Deng sets it. While it is blank, a technician on probation only receives standard-urgency jobs and does not leave probation automatically.
+
+Uploaded ID images, the onboarding selfie, and certificates are stored under `applications/` and are served only to the applicant or an admin/operator through `/api/join/documents/:id`. They are not public, not written to logs, and not shown on client job pages.
+
+## Onboarding test checklist
+
+- [ ] The menu contains “Join as a technician” and the footer contains the exact link text “Careers / Work with us”. Both open `/join`.
+- [ ] `/join` does not state a pay rate, a job volume, or that Nurumaji itself is licensed. The pay line is marked as a placeholder.
+- [ ] Apply now asks for the same phone code as login. A new number is still created as `client`, and the application status becomes `draft`. Leaving and returning keeps the saved steps.
+- [ ] An invite link (`/join?invite=…`) skips the introduction, works once, and is rejected after use or after 7 days. The Applications list tags that person as invited. The plaintext link is shown once and is not stored or logged.
+- [ ] Personal details, trade, licences, coverage, M-Pesa, two references, and the terms checkbox save. Terms store a timestamp.
+- [ ] Uploads accept only JPEG, PNG, WebP, or PDF, and reject a file over 10 MB. A sixth application submit or a 31st upload from the same user in a day returns 429.
+- [ ] Opening a document URL while signed out, or as another client, returns 401 or 404. The file is not on a public asset path.
+- [ ] Submitting sets the status to `submitted`. The queue filters by status, trade, and area. The list shows only the last two characters of the ID and KRA PIN. The detail page shows the full values and the files.
+- [ ] Request information sends an SMS, sets `needs_info`, and reopens only the selected steps. Reject requires a reason and sends an SMS. Approve sets the role to `technician`, creates the profile with `approved = 1` and `on_duty = 0`, and sends the login link. Each action is in `audit_log` without the ID number, KRA PIN, date of birth, or file contents.
+- [ ] Approve on probation leaves the technician eligible for standard jobs only. After the admin sets N, urgent and emergency jobs stay withheld until that many jobs are completed, invoiced, or paid.
+- [ ] The shared minute cron sends one SMS at 30 days and one at 7 days before a licence expiry. On the expiry date it sets `approved = 0`, sends one SMS, and the technician dashboard shows the renewal banner. Re-approve after the renewal is checked turns offers back on.
+
 ## Not in this phase
 
-The full operator board, quotes, invoices, admin approval screens, the technician application at `/join`, the installable app, and payments.
+The installable app and payments. Do not start those from this branch.
