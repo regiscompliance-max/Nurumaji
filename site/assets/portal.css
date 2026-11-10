@@ -5,7 +5,7 @@
 .portal-card h1{font-size:clamp(40px,8vw,56px)}
 .portal-dash{display:grid;gap:16px;max-width:720px;padding-bottom:72px;min-width:0}
 .portal-dash > .form{max-width:640px}
-.portal-empty{background:#fff;border:1px solid var(--rule);padding:28px;display:grid;gap:8px}
+.portal-empty{background:#fff;border:1px solid var(--rule);border-radius:4px;box-shadow:0 10px 28px rgba(16,36,46,.05);padding:28px;display:grid;gap:8px}
 .portal-empty h2{font-size:28px}
 .portal-empty p{color:var(--slate);margin:0}
 .job-stack{display:grid;gap:16px;min-width:0}

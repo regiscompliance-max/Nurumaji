@@ -7,7 +7,7 @@ import { endSession, readSession } from "./session";
 import { lookupService } from "./services.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261110b";
+const ASSET = "20261110c";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
