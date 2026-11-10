@@ -4,4 +4,4 @@
 .join-steps .current{color:var(--ink);font-weight:700}
 .step-panel{display:grid;gap:16px}
 .step-panel fieldset{border:0;margin:0;padding:0;display:grid;gap:8px}
-.trade-choice{display:flex;gap:8px;align-items:center}
+.trade-choice{display:flex;gap:8px;align-items:center;min-height:44px}

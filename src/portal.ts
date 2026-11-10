@@ -7,7 +7,7 @@ import { endSession, readSession } from "./session";
 import { lookupService } from "./services.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261110";
+const ASSET = "20261110b";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -288,7 +288,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <p><a href="/portal/applications">Review applications</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
     ${await pricingNote(c)}
-    <form method="get" action="/portal/operator" class="form">
+    <form method="get" action="/portal/operator" class="form board-filters">
       ${select("status", "Status", ["new", "offered", "assigned", "en_route", "on_site", "completed", "invoiced", "paid", "cancelled"])}
       ${select("trade", "Trade", ["electrical", "plumbing"])}
       ${select("urgency", "Urgency", ["standard", "urgent", "emergency"])}
@@ -460,7 +460,7 @@ function loginPage(): string {
       <form id="otp-verify" class="form" hidden>
         <div class="field">
           <label for="code">6-digit code</label>
-          <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+          <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
         </div>
         <button class="btn btn-amber" type="submit">Sign in</button>
         <button class="btn btn-line-ink" id="otp-back" type="button">Use a different number</button>
@@ -575,7 +575,7 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
     <h3>Timeline</h3>
     ${timeline}
     ${photos ? `<div class="photo-row">${photos}</div>` : ""}
-    ${compact ? "" : `<h3>Quote</h3>${quotes}${invoices ? `<h3>Invoice</h3>${invoices}` : ""}<h3>Rating</h3>${rating}`}
+    ${compact ? "" : `<section class="doc-block"><h3>Quote</h3>${quotes}</section>${invoices ? `<section class="doc-block"><h3>Invoice</h3>${invoices}</section>` : ""}<h3>Rating</h3>${rating}`}
     ${compact ? `<p><a href="/portal/jobs/${job.id}">Quote and rating</a></p>` : ""}
   </article>`;
 }
@@ -667,7 +667,7 @@ function page(title: string, body: string, script = false): string {
 <html lang="en-KE">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#10242E">
 <meta name="robots" content="noindex">
 <title>${title} | Nuru &amp; Maji</title>
