@@ -287,6 +287,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <h1>Job board</h1>
     <p><a href="/portal/applications">Review applications</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
+    ${await pricingNote(c)}
     <form method="get" action="/portal/operator" class="form">
       ${select("status", "Status", ["new", "offered", "assigned", "en_route", "on_site", "completed", "invoiced", "paid", "cancelled"])}
       ${select("trade", "Trade", ["electrical", "plumbing"])}
@@ -309,14 +310,96 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
 }
 
 async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone: string }): Promise<string> {
-  const roster = await technicianRoster(c, true);
+  const users = await c.env.DB.prepare(
+    "SELECT id, name, phone, role, status FROM users ORDER BY created_at DESC LIMIT 80"
+  ).all<{ id: string; name: string | null; phone: string; role: string; status: string }>();
+  const techs = await c.env.DB.prepare(
+    `SELECT users.id, users.name, technician_profiles.approved, technician_profiles.trades,
+            technician_applications.id AS application_id, technician_applications.personal_json
+     FROM users
+     LEFT JOIN technician_profiles ON technician_profiles.user_id = users.id
+     LEFT JOIN technician_applications ON technician_applications.id = (
+       SELECT id FROM technician_applications AS apps WHERE apps.user_id = users.id ORDER BY updated_at DESC LIMIT 1
+     )
+     WHERE users.role = 'technician'
+     ORDER BY users.name`
+  ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note')").all<{ key: string; value: string }>();
+  const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
+  const days = await c.env.DB.prepare(
+    `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
+     FROM jobs GROUP BY day ORDER BY day DESC LIMIT 14`
+  ).all<{ day: string; n: number }>();
+  const revenue = await c.env.DB.prepare("SELECT COALESCE(SUM(amount_kes), 0) AS n FROM invoices WHERE status = 'paid'").first<{ n: number }>();
+  const performance = await c.env.DB.prepare(
+    `SELECT users.name, COUNT(jobs.id) AS jobs,
+            (SELECT ROUND(AVG(score), 1) FROM ratings WHERE tech_id = users.id) AS rating
+     FROM users
+     LEFT JOIN jobs ON jobs.assigned_tech_id = users.id AND jobs.status IN ('completed', 'invoiced', 'paid')
+     WHERE users.role = 'technician'
+     GROUP BY users.id
+     ORDER BY jobs DESC`
+  ).all<{ name: string | null; jobs: number; rating: number | null }>();
+  const response = await c.env.DB.prepare(
+    `SELECT AVG(first_assigned - jobs.created_at) AS seconds
+     FROM jobs
+     JOIN (SELECT job_id, MIN(created_at) AS first_assigned FROM job_events WHERE type = 'assigned' GROUP BY job_id) AS firsts
+       ON firsts.job_id = jobs.id`
+  ).first<{ seconds: number | null }>();
+  const audit = await c.env.DB.prepare(
+    `SELECT action, created_at FROM audit_log
+     WHERE action IN ('role_changed', 'job_assigned', 'job_reassigned')
+     ORDER BY created_at DESC LIMIT 20`
+  ).all<{ action: string; created_at: number }>();
+  const userRows = (users.results ?? []).map((person) => `<form method="post" action="/api/admin/users/${person.id}/role" class="form">
+      <p><strong>${escapeHtml(person.name || "No name")}</strong> · ${escapeHtml(person.phone)} · ${escapeHtml(person.status)}</p>
+      <div class="field"><label for="role-${person.id}">Role</label><select id="role-${person.id}" name="role">${["client", "technician", "operator", "admin"].map((role) => `<option value="${role}"${person.role === role ? " selected" : ""}>${role}</option>`).join("")}</select></div>
+      <button class="btn btn-line-ink" type="submit">Save role</button>
+    </form>`).join("");
+  const techRows = (techs.results ?? []).map((tech) => {
+    let masked = "No application";
+    if (tech.personal_json) {
+      try {
+        const idNumber = String((JSON.parse(tech.personal_json) as { id_number?: string }).id_number || "");
+        masked = idNumber ? `ID ••••${idNumber.slice(-2)}` : "ID not recorded";
+      } catch { masked = "ID not recorded"; }
+    }
+    const link = tech.application_id ? `<a href="/portal/applications/${tech.application_id}">ID and certificates</a>` : "No application on file";
+    return `<article class="portal-empty"><h2>${escapeHtml(tech.name || "Technician")}</h2><p>${escapeHtml(tech.trades || "No trade")} · ${tech.approved === 1 ? "Approved" : "Not approved"}</p><p>${escapeHtml(masked)} · ${link}</p></article>`;
+  }).join("") || "<p>No technicians yet.</p>";
+  const dayRows = (days.results ?? []).map((row) => `<li>${escapeHtml(row.day)} · ${row.n}</li>`).join("") || "<li>No jobs yet.</li>";
+  const people = (performance.results ?? []).map((row) => `<li>${escapeHtml(row.name || "Technician")} · ${row.jobs} completed · rating ${row.rating ?? "none"}</li>`).join("") || "<li>No technician stats yet.</li>";
+  const minutes = response?.seconds == null ? "No assignment recorded yet." : `${Math.round(response.seconds / 60)} minutes`;
+  const auditRows = (audit.results ?? []).map((row) => `<li>${escapeHtml(formatWhen(row.created_at))} · ${escapeHtml(row.action.replaceAll("_", " "))}</li>`).join("") || "<li>No role changes or reassignments yet.</li>";
   return page("Administration", shell(user.phone, `
     <p class="eyebrow">Admin</p>
     <h1>Administration</h1>
-    <p><a href="/portal/applications">Review applications</a></p>
-    <p class="lede">Other admin tools are not switched on yet. Technician photos can be replaced here.</p>
-    <div class="job-stack">${roster}</div>
+    <p><a href="/portal/applications">Review applications</a> · <a href="/portal/operator">Job board</a></p>
+    <h2 id="reports">Reports</h2>
+    <p>Paid invoices: KES ${(revenue?.n ?? 0).toLocaleString("en-KE")}. Average time to first assignment: ${escapeHtml(minutes)}.</p>
+    <h3>Jobs per day, Nairobi</h3><ul>${dayRows}</ul>
+    <h3>Technician performance</h3><ul>${people}</ul>
+    <h2 id="users">Users</h2>
+    <div class="job-stack">${userRows}</div>
+    <h2 id="technicians">Technicians</h2>
+    <p class="muted">Full ID numbers and certificate files stay on the application. This list shows the last two digits only.</p>
+    <div class="job-stack">${techRows}</div>
+    <h2 id="settings">Settings</h2>
+    <form method="post" action="/api/admin/settings" class="form">
+      <div class="field"><label for="offer-timeout">Offer timeout, seconds</label><input id="offer-timeout" name="offerTimeoutSeconds" inputmode="numeric" required value="${escapeHtml(setting.offer_timeout_seconds || "600")}"></div>
+      <div class="field"><label for="service-areas">Service areas</label><textarea id="service-areas" name="serviceAreas" maxlength="300" placeholder="Deng to confirm. The public site says Nairobi and nearby towns.">${escapeHtml(setting.service_areas || "")}</textarea></div>
+      <div class="field"><label for="pricing-note">Pricing note</label><textarea id="pricing-note" name="pricingNote" maxlength="500" placeholder="No default prices. Deng to fill this in. Quotes still need an amount typed on the job.">${escapeHtml(setting.pricing_note || "")}</textarea></div>
+      <button class="btn btn-amber" type="submit">Save settings</button>
+    </form>
+    <h2>Role changes and reassignments</h2>
+    <ul>${auditRows}</ul>
   `));
+}
+
+async function pricingNote(c: { env: AppContext["Bindings"] }): Promise<string> {
+  const row = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'pricing_note'").first<{ value: string }>();
+  if (!row?.value) return "";
+  return `<p class="muted">${escapeHtml(row.value)}</p>`;
 }
 
 async function renewalBanner(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {

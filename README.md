@@ -180,6 +180,19 @@ An admin can open the operator board. Creating a phone-in job uses the existing 
 - [ ] Sending a quote requires an amount in whole shillings. The client can approve a `sent` quote, and the timeline records it.
 - [ ] After the work is completed, an operator can create an invoice for an amount they type. Marking it paid sets the job to `paid`. The client page does not claim the site collected the money.
 
+## Phase 5: admin tools
+
+No new migration, secret, cron, or bucket. Offer timeout, service areas, and a pricing note are rows in the existing `settings` table. The offer timeout already defaults to 600 seconds. Service areas and the pricing note start empty. The pricing note is shown to operators and is not copied into a quote. Quotes still need an amount typed on the job.
+
+Reports are counted from jobs, paid invoices, ratings, and the time of the first assignment. Role changes are written to `audit_log`. Job assignment was already written there. The admin list of technicians shows only the last two digits of an ID. The full ID and the certificate files stay on the application page.
+
+## Phase 5 test checklist
+
+- [ ] An admin can change a user's role. The last admin cannot be removed. The change appears in the audit list without the person's ID number.
+- [ ] The technician list links to the application for the full ID and certificates, and the list itself masks the ID.
+- [ ] Saving settings changes the offer timeout, and leaves service areas and the pricing note blank until someone types them. A saved pricing note does not fill in a quote amount.
+- [ ] Reports show jobs per Nairobi day, the sum of paid invoices, completed jobs per technician, and the average time to the first assignment. Empty data stays empty.
+
 ## Not in this phase
 
-Admin reports, the installable app, and payments. Do not start those from this branch.
+The installable app, M-Pesa payments, and the later A–G add-ons. Do not start those from this branch.
