@@ -1,36 +1,65 @@
 // Nuru & Maji site script
-// Set a WhatsApp number to enable WhatsApp bookings; leave blank to use email.
+// The contact form still prepares an email. WhatsApp links are separate.
 var WHATSAPP_NUMBER = "";
 var EMAIL = "hello@nurumaji.co.ke";
 
 (function () {
-  // Mobile menu
   var btn = document.querySelector(".menu-btn");
   var nav = document.getElementById("site-nav");
+  var head = document.querySelector(".site-head");
   if (btn && nav) {
+    function focusable() {
+      return [btn].concat(Array.prototype.slice.call(nav.querySelectorAll("a, button")));
+    }
     function closeMenu() {
       nav.classList.remove("open");
+      document.body.classList.remove("nav-open");
       btn.setAttribute("aria-expanded", "false");
       btn.textContent = "Menu";
     }
+    function openMenu() {
+      nav.classList.add("open");
+      document.body.classList.add("nav-open");
+      btn.setAttribute("aria-expanded", "true");
+      btn.textContent = "Close";
+      var first = nav.querySelector("a");
+      if (first) first.focus();
+    }
     btn.addEventListener("click", function () {
-      var open = nav.classList.toggle("open");
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
-      btn.textContent = open ? "Close" : "Menu";
+      if (nav.classList.contains("open")) closeMenu();
+      else openMenu();
     });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && nav.classList.contains("open")) {
+      if (!nav.classList.contains("open")) return;
+      if (e.key === "Escape") {
         closeMenu();
         btn.focus();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      var nodes = focusable();
+      var first = nodes[0];
+      var last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     });
     nav.addEventListener("click", function (e) {
       if (e.target.closest("a")) closeMenu();
     });
   }
+  if (head) {
+    var compact = function () { head.classList.toggle("is-compact", window.scrollY > 12); };
+    compact();
+    window.addEventListener("scroll", compact, { passive: true });
+  }
 
   var whatsappFloat = document.querySelector(".wa-float");
-  if (whatsappFloat && !WHATSAPP_NUMBER) whatsappFloat.hidden = true;
+  if (whatsappFloat && !whatsappFloat.getAttribute("href")) whatsappFloat.hidden = true;
 
   // Footer year
   var y = document.querySelector("[data-year]");
