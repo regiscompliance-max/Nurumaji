@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { api } from "./api";
+import { expireOffers } from "./dispatch-run";
+import { licenceCheck } from "./licence-check";
 import { portal } from "./portal";
-import type { AppContext } from "./types";
+import type { AppContext, Bindings } from "./types";
 
 const app = new Hono<AppContext>();
 
@@ -31,4 +33,9 @@ app.onError((error, c) => {
   return c.json({ error: "Something went wrong." }, 500);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
+    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env)]));
+  },
+};

@@ -11,13 +11,30 @@
     "not_found_handling": "404-page",
     "run_worker_first": ["/api/*", "/portal", "/portal/*"]
   },
+  "vars": {
+    "APP_URL": "https://nurumaji.regiscompliance.workers.dev"
+  },
+  // Starts when this Worker is deployed. It expires offers and offers the job
+  // to the next technician. It does not need a separate Cloudflare product,
+  // but D1 must already exist or the whole deploy fails.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  // The uploads bucket must exist before this is deployed. A missing bucket
+  // fails the production deploy the same way a missing D1 database does.
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "nurumaji-uploads"
+    }
+  ],
   // Do not merge a placeholder database_id to main. Create the database first
   // and paste the real id here. A missing or fake id fails the production deploy.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "nurumaji-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "2d1bca54-51ac-480b-b106-b50ed80877a2",
       "migrations_dir": "migrations"
     }
   ]

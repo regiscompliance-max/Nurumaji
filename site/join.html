@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en-KE">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Join as a technician | Nuru &amp; Maji</title>
+<meta name="description" content="Apply to take electrical or plumbing jobs in Nairobi and nearby towns. Offers come to your phone. Pay goes to M-Pesa.">
+<link rel="canonical" href="https://nurumaji.co.ke/join">
+<meta name="theme-color" content="#10242E">
+<link rel="icon" href="/assets/favicon.svg?v=20261106" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon-32.png?v=20261106" type="image/png" sizes="32x32">
+<link rel="icon" href="/assets/favicon-16.png?v=20261106" type="image/png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261106">
+<link rel="stylesheet" href="/assets/styles.css?v=20261106b">
+<link rel="stylesheet" href="/assets/join.css?v=20261106e">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="topline"><div class="wrap"><span>Electrical and plumbing services across Nairobi and nearby towns</span><a href="/portal/book">Request a quote</a></div></div>
+<header class="site-head">
+<div class="wrap">
+<a class="brand" href="/"><img src="/assets/logo-lockup.svg?v=20261106" width="222" height="52" alt="Nuru &amp; Maji"></a>
+<button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+<nav class="nav" id="site-nav" aria-label="Main"><a href="/">Home</a><a href="/electrical">Electrical</a><a href="/plumbing">Plumbing</a><a href="/plans">Care plans</a><a href="/about">About</a><a href="/join" aria-current="page">Join as a technician</a><a href="/contact">Contact</a><a class="btn btn-amber" href="/portal/book">Request a proposal</a></nav>
+<div class="head-actions"><a class="head-login" href="/portal/login">Client Login</a><a class="btn btn-amber head-cta" href="/portal/book">Request a proposal</a></div>
+</div>
+</header>
+<main id="main">
+<section class="page-head"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="/">Home</a> / Join</nav><h1>Join as a technician</h1><p class="lede">Electrical and plumbing work in Nairobi and nearby towns. You choose a base, and matching jobs are sent to your phone.</p></div></section>
+<section class="band" id="join-marketing"><div class="wrap join-marketing">
+<h2>What the work looks like</h2>
+<ul>
+<li>A job near the base you set is sent to your phone. You accept or decline it.</li>
+<li>An offer stays open for 10 minutes, then it moves on.</li>
+<li>Pay for completed work goes to the M-Pesa number you give us. The amount for each job is in your agreement. [Placeholder for Deng: pay rate or range.]</li>
+</ul>
+<h2>Trades we are taking</h2>
+<p>Electricians and plumbers. The work matches what the site already books: sockets, lighting, solar backup, leaks, drains, tanks and pumps, and water heaters.</p>
+<p>Electricians need an EPRA electrical worker licence. Plumbers can add an NCA number if they have one, plus a trade test certificate. Everyone needs a Certificate of Good Conduct. Nurumaji does not issue those licences.</p>
+<h2>Where</h2>
+<p>Nairobi and nearby towns. You set how far you will travel from your base.</p>
+<p><button class="btn btn-amber" type="button" id="apply-now">Apply now</button></p>
+</div></section>
+<section class="band" id="join-apply" hidden><div class="wrap" style="max-width:720px">
+<ol class="join-steps" id="step-list">
+<li data-step="otp">1. Phone</li><li data-step="personal">2. You</li><li data-step="trade">3. Trade</li><li data-step="licences">4. Licences</li><li data-step="uploads">5. Files</li><li data-step="coverage">6. Coverage</li><li data-step="payout">7. M-Pesa</li><li data-step="references">8. References</li>
+</ol>
+<p class="status" id="join-status" role="status"></p>
+<div id="step-otp" class="step-panel">
+<form id="otp-request" class="form"><div class="field"><label for="phone">Mobile number</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="07XX XXX XXX" required></div><button class="btn btn-amber" type="submit">Send code</button></form>
+<form id="otp-verify" class="form" hidden><div class="field"><label for="code">6-digit code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div><button class="btn btn-amber" type="submit">Continue</button></form>
+<button class="btn btn-line-ink" type="button" id="otp-back" hidden>Use a different number</button>
+</div>
+<form id="step-personal" class="step-panel form" hidden>
+<div class="field"><label for="full-name">Full name</label><input id="full-name" required maxlength="80"></div>
+<div class="field"><label for="email">Email, optional</label><input id="email" type="email" maxlength="120"></div>
+<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" required></div>
+<div class="field"><label for="id-number">National ID number</label><input id="id-number" inputmode="numeric" required></div>
+<div class="field"><label for="kra">KRA PIN</label><input id="kra" required maxlength="11" autocapitalize="characters"></div>
+<div class="field"><label for="area">Home area or estate</label><input id="area" required maxlength="80"></div>
+<button class="btn btn-amber" type="submit">Save and continue</button>
+</form>
+<form id="step-trade" class="step-panel form" hidden>
+<fieldset><legend>Trade</legend>
+<label class="trade-choice"><input type="checkbox" name="trade" value="electrical"> Electrical</label>
+<label class="trade-choice"><input type="checkbox" name="trade" value="plumbing"> Plumbing</label>
+</fieldset>
+<div class="field"><label for="years">Years of experience</label><input id="years" inputmode="numeric" required></div>
+<fieldset><legend>Work you do</legend>
+<label class="trade-choice"><input type="checkbox" name="specialism" value="sockets"> Sockets and switches</label>
+<label class="trade-choice"><input type="checkbox" name="specialism" value="lighting"> Lighting</label>
+<label class="trade-choice"><input type="checkbox" name="specialism" value="solar"> Solar backup</label>
+<label class="trade-choice"><input type="checkbox" name="specialism" value="leaks"> Leaks</label>
+<label class="trade-choice"><input type="checkbox" name="specialism" value="drains"> Drains</label>
+<label class="trade-choice"><input type="checkbox" name="specialism" value="tanks"> Tanks and pumps</label>
+<label class="trade-choice"><input type="checkbox" name="specialism" value="heaters"> Water heaters</label>
+</fieldset>
+<fieldset><legend>Own tools</legend>
+<label class="trade-choice"><input type="radio" name="tools" value="yes" required> Yes</label>
+<label class="trade-choice"><input type="radio" name="tools" value="no"> No</label>
+</fieldset>
+<fieldset><legend>Transport</legend>
+<label class="trade-choice"><input type="radio" name="transport" value="motorbike" required> Motorbike</label>
+<label class="trade-choice"><input type="radio" name="transport" value="car"> Car</label>
+<label class="trade-choice"><input type="radio" name="transport" value="none"> None</label>
+</fieldset>
+<button class="btn btn-amber" type="submit">Save and continue</button>
+</form>
+<form id="step-licences" class="step-panel form" hidden>
+<div class="field"><label for="epra-number">EPRA licence number</label><input id="epra-number" maxlength="40"></div>
+<div class="field"><label for="epra-class">EPRA class</label><input id="epra-class" maxlength="40"></div>
+<div class="field"><label for="epra-expiry">EPRA expiry</label><input id="epra-expiry" type="date"></div>
+<div class="field"><label for="nca-number">NCA number, if you have one</label><input id="nca-number" maxlength="40"></div>
+<div class="field"><label for="good-conduct">Certificate of Good Conduct issue date</label><input id="good-conduct" type="date" required></div>
+<p class="muted">Electricians fill in the EPRA fields. Plumbers can leave them blank.</p>
+<button class="btn btn-amber" type="submit">Save and continue</button>
+</form>
+<form id="step-uploads" class="step-panel form" hidden>
+<p class="muted">Images or PDF, up to 10 MB each. These files stay private. Clients never see them. The profile photo you add later, after approval, is a separate picture.</p>
+<div class="field"><label for="doc-type">File</label><select id="doc-type">
+<option value="id_front">ID, front</option><option value="id_back">ID, back</option><option value="selfie">Selfie</option>
+<option value="epra_licence">EPRA licence</option><option value="nca_accreditation">NCA accreditation</option>
+<option value="trade_test">Trade test certificate</option><option value="good_conduct">Certificate of Good Conduct</option>
+<option value="past_work">Past work, optional</option>
+</select></div>
+<div class="field"><label for="doc-file">Choose file</label><input id="doc-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required></div>
+<button class="btn btn-line-ink" type="submit">Upload this file</button>
+<ul id="file-list"></ul>
+<button class="btn btn-amber" type="button" id="uploads-next">Continue</button>
+</form>
+<form id="step-coverage" class="step-panel form" hidden>
+<p class="muted">Type the base, or use this phone's location. There is no map on this page.</p>
+<div class="field"><label for="lat">Latitude</label><input id="lat" inputmode="decimal" required></div>
+<div class="field"><label for="lng">Longitude</label><input id="lng" inputmode="decimal" required></div>
+<button class="btn btn-line-ink" type="button" id="use-location">Use my location</button>
+<p class="muted" id="location-note"></p>
+<div class="field"><label for="radius">Radius, km</label><input id="radius" inputmode="decimal" required></div>
+<fieldset><legend>Working days</legend>
+<label class="trade-choice"><input type="checkbox" name="day" value="mon"> Mon</label>
+<label class="trade-choice"><input type="checkbox" name="day" value="tue"> Tue</label>
+<label class="trade-choice"><input type="checkbox" name="day" value="wed"> Wed</label>
+<label class="trade-choice"><input type="checkbox" name="day" value="thu"> Thu</label>
+<label class="trade-choice"><input type="checkbox" name="day" value="fri"> Fri</label>
+<label class="trade-choice"><input type="checkbox" name="day" value="sat"> Sat</label>
+<label class="trade-choice"><input type="checkbox" name="day" value="sun"> Sun</label>
+</fieldset>
+<div class="field"><label for="start-time">Start</label><input id="start-time" type="time" required value="08:00"></div>
+<div class="field"><label for="end-time">End</label><input id="end-time" type="time" required value="17:00"></div>
+<button class="btn btn-amber" type="submit">Save and continue</button>
+</form>
+<form id="step-payout" class="step-panel form" hidden>
+<div class="field"><label for="mpesa">M-Pesa number</label><input id="mpesa" type="tel" inputmode="tel" required></div>
+<button class="btn btn-amber" type="submit">Save and continue</button>
+</form>
+<form id="step-references" class="step-panel form" hidden>
+<div class="field"><label for="ref1-name">First reference name</label><input id="ref1-name" required maxlength="80"></div>
+<div class="field"><label for="ref1-phone">First reference phone</label><input id="ref1-phone" type="tel" required></div>
+<div class="field"><label for="ref2-name">Second reference name</label><input id="ref2-name" required maxlength="80"></div>
+<div class="field"><label for="ref2-phone">Second reference phone</label><input id="ref2-phone" type="tel" required></div>
+<label class="trade-choice"><input id="terms" type="checkbox" required> I agree to the terms and the code of conduct. The time of this agreement is stored with the application.</label>
+<button class="btn btn-amber" type="submit">Submit application</button>
+</form>
+<p id="step-done" class="step-panel" hidden></p>
+</div></section>
+</main>
+<footer class="site-foot">
+<div class="wrap">
+<div class="foot-cols">
+<div style="display:grid;gap:16px;align-content:start">
+<a class="brand brand-light" href="/"><img src="/assets/logo-lockup-reversed.svg?v=20261106" width="145" height="34" alt="Nuru &amp; Maji"></a>
+<p>Tested power. Reliable water.<br>Umeme salama, maji safi.</p>
+</div>
+<div><h2>Services</h2><ul><li><a href="/electrical">Electrical</a></li><li><a href="/plumbing">Plumbing</a></li><li><a href="/plans">Care plans</a></li><li><a href="/portal/book?urgency=emergency">Emergency call-outs</a></li></ul></div>
+<div><h2>Company</h2><ul><li><a href="/about">About us</a></li><li><a href="/legal">Privacy and service terms</a></li><li><a href="/portal/book">Book a technician</a></li><li><a href="/join">Careers / Work with us</a></li></ul></div>
+<div><h2>Contact</h2><ul><li><a href="/contact">Contact us</a></li><li><a href="mailto:hello@nurumaji.co.ke">hello@nurumaji.co.ke</a></li><li>Nairobi, Kenya</li></ul></div>
+</div>
+<div class="foot-base"><span>© <span data-year>2026</span> Nuru &amp; Maji. All rights reserved. <a href="/portal">Track my job</a></span><span>Service scope, pricing and any workmanship cover are confirmed in your written quote.</span></div>
+</div>
+</footer>
+<script src="/assets/join.js?v=20261106e" defer></script>
+<script src="/assets/site.js?v=20261106" defer></script>
+</body>
+</html>
