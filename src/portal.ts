@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { detailPage, invitePage, queuePage } from "./application-pages";
+import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
 import { loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
@@ -86,7 +87,7 @@ for (const role of ["client", "technician", "operator", "admin"] as const) {
   portal.get(`/${role}`, async (c) => {
     const user = await readSession(c);
     if (!user) return c.redirect("/portal/login", 303);
-    if (user.role !== role) return c.html(forbiddenPage(user.role), 403);
+    if (user.role !== role && !(role === "operator" && user.role === "admin")) return c.html(forbiddenPage(user.role), 403);
     if (role === "client") return c.html(clientPage(user.phone, await loadClientJobs(c, user.id)));
     if (role === "technician") return c.html(await technicianDashboard(c, user));
     if (role === "operator") return c.html(await operatorDashboard(c, user));
@@ -225,42 +226,180 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
   `), true);
 }
 
-async function operatorDashboard(c: { env: AppContext["Bindings"] }, user: { phone: string }): Promise<string> {
+async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query: (key: string) => string | undefined } }, user: { phone: string }): Promise<string> {
+  const filters = {
+    status: c.req.query("status") || "",
+    trade: c.req.query("trade") || "",
+    urgency: c.req.query("urgency") || "",
+    area: c.req.query("area") || "",
+  };
   const rows = await c.env.DB.prepare(
-    `SELECT id, trade, urgency, status, address, operator_flag,
-            (SELECT COUNT(*) FROM job_offers WHERE job_offers.job_id = jobs.id) AS offers
+    `SELECT id, trade, urgency, status, address, description, operator_flag
      FROM jobs
-     WHERE operator_flag = 1 OR status IN ('offered', 'assigned', 'en_route', 'on_site')
+     WHERE (? = '' OR status = ?)
+       AND (? = '' OR trade = ?)
+       AND (? = '' OR urgency = ?)
+       AND (? = '' OR lower(coalesce(address, '')) LIKE ?)
      ORDER BY operator_flag DESC, updated_at DESC
-     LIMIT 30`
-  ).all<{ id: string; trade: string; urgency: string; status: string; address: string | null; operator_flag: number; offers: number }>();
-  const roster = await technicianRoster(c, true);
-  const items = (rows.results ?? []).map((job) => `<article class="portal-empty job-card">
-      <p class="eyebrow">${job.operator_flag === 1 ? "Flagged for an operator" : escapeHtml(statusLabel(job.status))}</p>
+     LIMIT 40`
+  ).bind(
+    filters.status, filters.status,
+    filters.trade, filters.trade,
+    filters.urgency, filters.urgency,
+    filters.area, `%${filters.area.toLowerCase().replace(/[%_]/g, "")}%`,
+  ).all<{ id: string; trade: string; urgency: string; status: string; address: string | null; description: string; operator_flag: number }>();
+  const techs = await c.env.DB.prepare(
+    `SELECT users.id, users.name, technician_profiles.trades
+     FROM users JOIN technician_profiles ON technician_profiles.user_id = users.id
+     WHERE users.role = 'technician' AND users.status = 'active' AND technician_profiles.approved = 1
+     ORDER BY users.name`
+  ).all<{ id: string; name: string | null; trades: string }>();
+  const options = (techs.results ?? []).map((tech) => `<option value="${tech.id}">${escapeHtml(tech.name || "Technician")} · ${escapeHtml(tech.trades || "trade not set")}</option>`).join("");
+  const cards = [];
+  for (const job of rows.results ?? []) {
+    const suggestions = await suggestTechnicians(c.env, job.id);
+    const suggested = suggestions.map((tech) => `<li>${escapeHtml(tech.name)} · ${tech.distanceKm} km</li>`).join("") || "<li>No one in range is on duty.</li>";
+    const quoteForm = job.status === "cancelled" ? "" : `<form method="post" action="/api/operator/jobs/${job.id}/quotes" class="form">
+        <div class="field"><label for="quote-${job.id}">Quote amount, KES</label><input id="quote-${job.id}" name="amountKes" inputmode="numeric" required placeholder="Type the amount"></div>
+        <button class="btn btn-line-ink" type="submit">Send quote</button>
+      </form>`;
+    const invoiceForm = job.status === "completed" ? `<form method="post" action="/api/operator/jobs/${job.id}/invoices" class="form">
+        <div class="field"><label for="invoice-${job.id}">Invoice amount, KES</label><input id="invoice-${job.id}" name="amountKes" inputmode="numeric" required placeholder="Type the amount"></div>
+        <button class="btn btn-amber" type="submit">Create invoice</button>
+      </form>` : "";
+    const paidForm = job.status === "invoiced" ? `<form method="post" action="/api/operator/jobs/${job.id}/invoices/paid"><button class="btn btn-amber" type="submit">Mark payment received</button></form>` : "";
+    cards.push(`<article class="portal-empty job-card" id="job-${job.id}">
+      <p class="eyebrow">${job.operator_flag === 1 ? "Flagged" : escapeHtml(statusLabel(job.status))}</p>
       <h2>${escapeHtml(titleCase(job.trade))} · ${escapeHtml(job.urgency)}</h2>
-      ${job.address ? `<p>${escapeHtml(job.address)}</p>` : "<p>No address yet.</p>"}
-      <p class="muted">${job.offers} offer${job.offers === 1 ? "" : "s"} so far. ${escapeHtml(statusLabel(job.status))}.</p>
-    </article>`).join("") || `<div class="portal-empty"><h2>Nothing flagged</h2><p>Jobs appear here while they are being offered, and when three offers pass with no acceptance.</p></div>`;
+      <p>${escapeHtml(job.description)}</p>
+      ${job.address ? `<p>${escapeHtml(job.address)}</p>` : ""}
+      <h3>Suggested</h3><ul>${suggested}</ul>
+      <form method="post" action="/api/operator/jobs/${job.id}/assign" class="form">
+        <div class="field"><label for="tech-${job.id}">Assign</label><select id="tech-${job.id}" name="techId" required><option value="">Choose</option>${options}</select></div>
+        <button class="btn btn-amber" type="submit">Assign</button>
+      </form>
+      ${quoteForm}${invoiceForm}${paidForm}
+    </article>`);
+  }
+  const select = (name: string, label: string, values: string[]) => `<div class="field"><label for="${name}">${label}</label><select id="${name}" name="${name}"><option value="">Any</option>${values.map((value) => `<option value="${value}"${filters[name as keyof typeof filters] === value ? " selected" : ""}>${value}</option>`).join("")}</select></div>`;
   return page("Dispatch", shell(user.phone, `
     <p class="eyebrow">Operator</p>
-    <h1>Dispatch</h1>
+    <h1>Job board</h1>
     <p><a href="/portal/applications">Review applications</a></p>
-    <p class="lede">Offers go out by distance. This list is the status only. Assigning a job by hand comes later.</p>
-    <div class="job-stack">${items}</div>
-    <h2>Technicians</h2>
-    <div class="job-stack">${roster}</div>
+    <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
+    ${await pricingNote(c)}
+    <form method="get" action="/portal/operator" class="form">
+      ${select("status", "Status", ["new", "offered", "assigned", "en_route", "on_site", "completed", "invoiced", "paid", "cancelled"])}
+      ${select("trade", "Trade", ["electrical", "plumbing"])}
+      ${select("urgency", "Urgency", ["standard", "urgent", "emergency"])}
+      <div class="field"><label for="area">Area</label><input id="area" name="area" value="${escapeHtml(filters.area)}"></div>
+      <button class="btn btn-line-ink" type="submit">Filter</button>
+    </form>
+    <h2>Phone-in request</h2>
+    <form method="post" action="/api/operator/jobs" class="form">
+      <div class="field"><label for="phone">Client mobile</label><input id="phone" name="phone" type="tel" required placeholder="07XX XXX XXX"></div>
+      <div class="field"><label for="client-name">Name, optional</label><input id="client-name" name="name" maxlength="80"></div>
+      <div class="field"><label for="new-trade">Trade</label><select id="new-trade" name="trade"><option value="electrical">Electrical</option><option value="plumbing">Plumbing</option></select></div>
+      <div class="field"><label for="new-urgency">Urgency</label><select id="new-urgency" name="urgency"><option value="standard">Standard</option><option value="urgent">Urgent</option><option value="emergency">Emergency</option></select></div>
+      <div class="field"><label for="new-address">Area</label><input id="new-address" name="address" required maxlength="300"></div>
+      <div class="field"><label for="new-description">What is needed</label><textarea id="new-description" name="description" required minlength="8"></textarea></div>
+      <button class="btn btn-amber" type="submit">Create job</button>
+    </form>
+    <div class="job-stack">${cards.join("") || "<p>No jobs match.</p>"}</div>
   `));
 }
 
 async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone: string }): Promise<string> {
-  const roster = await technicianRoster(c, true);
+  const users = await c.env.DB.prepare(
+    "SELECT id, name, phone, role, status FROM users ORDER BY created_at DESC LIMIT 80"
+  ).all<{ id: string; name: string | null; phone: string; role: string; status: string }>();
+  const techs = await c.env.DB.prepare(
+    `SELECT users.id, users.name, technician_profiles.approved, technician_profiles.trades,
+            technician_applications.id AS application_id, technician_applications.personal_json
+     FROM users
+     LEFT JOIN technician_profiles ON technician_profiles.user_id = users.id
+     LEFT JOIN technician_applications ON technician_applications.id = (
+       SELECT id FROM technician_applications AS apps WHERE apps.user_id = users.id ORDER BY updated_at DESC LIMIT 1
+     )
+     WHERE users.role = 'technician'
+     ORDER BY users.name`
+  ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note')").all<{ key: string; value: string }>();
+  const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
+  const days = await c.env.DB.prepare(
+    `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
+     FROM jobs GROUP BY day ORDER BY day DESC LIMIT 14`
+  ).all<{ day: string; n: number }>();
+  const revenue = await c.env.DB.prepare("SELECT COALESCE(SUM(amount_kes), 0) AS n FROM invoices WHERE status = 'paid'").first<{ n: number }>();
+  const performance = await c.env.DB.prepare(
+    `SELECT users.name, COUNT(jobs.id) AS jobs,
+            (SELECT ROUND(AVG(score), 1) FROM ratings WHERE tech_id = users.id) AS rating
+     FROM users
+     LEFT JOIN jobs ON jobs.assigned_tech_id = users.id AND jobs.status IN ('completed', 'invoiced', 'paid')
+     WHERE users.role = 'technician'
+     GROUP BY users.id
+     ORDER BY jobs DESC`
+  ).all<{ name: string | null; jobs: number; rating: number | null }>();
+  const response = await c.env.DB.prepare(
+    `SELECT AVG(first_assigned - jobs.created_at) AS seconds
+     FROM jobs
+     JOIN (SELECT job_id, MIN(created_at) AS first_assigned FROM job_events WHERE type = 'assigned' GROUP BY job_id) AS firsts
+       ON firsts.job_id = jobs.id`
+  ).first<{ seconds: number | null }>();
+  const audit = await c.env.DB.prepare(
+    `SELECT action, created_at FROM audit_log
+     WHERE action IN ('role_changed', 'job_assigned', 'job_reassigned')
+     ORDER BY created_at DESC LIMIT 20`
+  ).all<{ action: string; created_at: number }>();
+  const userRows = (users.results ?? []).map((person) => `<form method="post" action="/api/admin/users/${person.id}/role" class="form">
+      <p><strong>${escapeHtml(person.name || "No name")}</strong> · ${escapeHtml(person.phone)} · ${escapeHtml(person.status)}</p>
+      <div class="field"><label for="role-${person.id}">Role</label><select id="role-${person.id}" name="role">${["client", "technician", "operator", "admin"].map((role) => `<option value="${role}"${person.role === role ? " selected" : ""}>${role}</option>`).join("")}</select></div>
+      <button class="btn btn-line-ink" type="submit">Save role</button>
+    </form>`).join("");
+  const techRows = (techs.results ?? []).map((tech) => {
+    let masked = "No application";
+    if (tech.personal_json) {
+      try {
+        const idNumber = String((JSON.parse(tech.personal_json) as { id_number?: string }).id_number || "");
+        masked = idNumber ? `ID ••••${idNumber.slice(-2)}` : "ID not recorded";
+      } catch { masked = "ID not recorded"; }
+    }
+    const link = tech.application_id ? `<a href="/portal/applications/${tech.application_id}">ID and certificates</a>` : "No application on file";
+    return `<article class="portal-empty"><h2>${escapeHtml(tech.name || "Technician")}</h2><p>${escapeHtml(tech.trades || "No trade")} · ${tech.approved === 1 ? "Approved" : "Not approved"}</p><p>${escapeHtml(masked)} · ${link}</p></article>`;
+  }).join("") || "<p>No technicians yet.</p>";
+  const dayRows = (days.results ?? []).map((row) => `<li>${escapeHtml(row.day)} · ${row.n}</li>`).join("") || "<li>No jobs yet.</li>";
+  const people = (performance.results ?? []).map((row) => `<li>${escapeHtml(row.name || "Technician")} · ${row.jobs} completed · rating ${row.rating ?? "none"}</li>`).join("") || "<li>No technician stats yet.</li>";
+  const minutes = response?.seconds == null ? "No assignment recorded yet." : `${Math.round(response.seconds / 60)} minutes`;
+  const auditRows = (audit.results ?? []).map((row) => `<li>${escapeHtml(formatWhen(row.created_at))} · ${escapeHtml(row.action.replaceAll("_", " "))}</li>`).join("") || "<li>No role changes or reassignments yet.</li>";
   return page("Administration", shell(user.phone, `
     <p class="eyebrow">Admin</p>
     <h1>Administration</h1>
-    <p><a href="/portal/applications">Review applications</a></p>
-    <p class="lede">Other admin tools are not switched on yet. Technician photos can be replaced here.</p>
-    <div class="job-stack">${roster}</div>
+    <p><a href="/portal/applications">Review applications</a> · <a href="/portal/operator">Job board</a></p>
+    <h2 id="reports">Reports</h2>
+    <p>Paid invoices: KES ${(revenue?.n ?? 0).toLocaleString("en-KE")}. Average time to first assignment: ${escapeHtml(minutes)}.</p>
+    <h3>Jobs per day, Nairobi</h3><ul>${dayRows}</ul>
+    <h3>Technician performance</h3><ul>${people}</ul>
+    <h2 id="users">Users</h2>
+    <div class="job-stack">${userRows}</div>
+    <h2 id="technicians">Technicians</h2>
+    <p class="muted">Full ID numbers and certificate files stay on the application. This list shows the last two digits only.</p>
+    <div class="job-stack">${techRows}</div>
+    <h2 id="settings">Settings</h2>
+    <form method="post" action="/api/admin/settings" class="form">
+      <div class="field"><label for="offer-timeout">Offer timeout, seconds</label><input id="offer-timeout" name="offerTimeoutSeconds" inputmode="numeric" required value="${escapeHtml(setting.offer_timeout_seconds || "600")}"></div>
+      <div class="field"><label for="service-areas">Service areas</label><textarea id="service-areas" name="serviceAreas" maxlength="300" placeholder="Deng to confirm. The public site says Nairobi and nearby towns.">${escapeHtml(setting.service_areas || "")}</textarea></div>
+      <div class="field"><label for="pricing-note">Pricing note</label><textarea id="pricing-note" name="pricingNote" maxlength="500" placeholder="No default prices. Deng to fill this in. Quotes still need an amount typed on the job.">${escapeHtml(setting.pricing_note || "")}</textarea></div>
+      <button class="btn btn-amber" type="submit">Save settings</button>
+    </form>
+    <h2>Role changes and reassignments</h2>
+    <ul>${auditRows}</ul>
   `));
+}
+
+async function pricingNote(c: { env: AppContext["Bindings"] }): Promise<string> {
+  const row = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'pricing_note'").first<{ value: string }>();
+  if (!row?.value) return "";
+  return `<p class="muted">${escapeHtml(row.value)}</p>`;
 }
 
 async function renewalBanner(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {
@@ -414,6 +553,9 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
       return `<div><p><strong>KES ${quote.amount_kes.toLocaleString("en-KE")}</strong></p>${approve}</div>`;
     }).join("")
     : `<p class="muted">A quote will appear here when one is sent. You can approve it from this page.</p>`;
+  const invoices = group.invoices.length
+    ? group.invoices.map((invoice) => `<p><strong>KES ${invoice.amount_kes.toLocaleString("en-KE")}</strong> · ${escapeHtml(invoice.status)}</p>`).join("") + `<p class="muted">Payment through the site is not switched on. An operator records it when it has been received.</p>`
+    : "";
   const rating = group.rating
     ? `<p>You rated this job ${group.rating.score} out of 5.</p>`
     : job.status === "completed"
@@ -433,7 +575,7 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
     <h3>Timeline</h3>
     ${timeline}
     ${photos ? `<div class="photo-row">${photos}</div>` : ""}
-    ${compact ? "" : `<h3>Quote</h3>${quotes}<h3>Rating</h3>${rating}`}
+    ${compact ? "" : `<h3>Quote</h3>${quotes}${invoices ? `<h3>Invoice</h3>${invoices}` : ""}<h3>Rating</h3>${rating}`}
     ${compact ? `<p><a href="/portal/jobs/${job.id}">Quote and rating</a></p>` : ""}
   </article>`;
 }
@@ -472,7 +614,10 @@ function eventLabel(type: string): string {
     on_site: "Technician on site",
     completed: "Work completed",
     needs_operator: "Flagged for an operator",
+    quote_sent: "Quote sent",
     quote_approved: "Quote approved",
+    invoiced: "Invoice sent",
+    paid: "Payment recorded",
     rated: "Rating saved",
   };
   return labels[type] ?? type;

@@ -166,6 +166,33 @@ Uploaded ID images, the onboarding selfie, and certificates are stored under `ap
 - [ ] Approve on probation leaves the technician eligible for standard jobs only. After the admin sets N, urgent and emergency jobs stay withheld until that many jobs are completed, invoiced, or paid.
 - [ ] The shared minute cron sends one SMS at 30 days and one at 7 days before a licence expiry. On the expiry date it sets `approved = 0`, sends one SMS, and the technician dashboard shows the renewal banner. Re-approve after the renewal is checked turns offers back on.
 
+## Phase 4: operator board, quotes and invoices
+
+No new migration. `quotes` and `invoices` are already created by `0001_init.sql`. Quote status stays `draft`, `sent`, `approved`, or `rejected`. Invoice status stays `unpaid`, `paid`, or `void`. There is no new secret, cron, or bucket. Quote and invoice amounts are typed by the operator. This phase does not set a price, and it does not take M-Pesa payments. Marking an invoice paid only records that the operator has received the money.
+
+An admin can open the operator board. Creating a phone-in job uses the existing dispatch. Assigning or reassigning writes `audit_log`.
+
+## Phase 4 test checklist
+
+- [ ] The operator board filters by status, trade, urgency, and area, and lists the nearest on-duty suggestions.
+- [ ] An operator can create a job for a client who phones in. A new number is stored as `client`. The job is offered by the existing dispatch.
+- [ ] An operator can assign or reassign an approved technician. The open offers close, the technician gets a text, and the audit log records the change.
+- [ ] Sending a quote requires an amount in whole shillings. The client can approve a `sent` quote, and the timeline records it.
+- [ ] After the work is completed, an operator can create an invoice for an amount they type. Marking it paid sets the job to `paid`. The client page does not claim the site collected the money.
+
+## Phase 5: admin tools
+
+No new migration, secret, cron, or bucket. Offer timeout, service areas, and a pricing note are rows in the existing `settings` table. The offer timeout already defaults to 600 seconds. Service areas and the pricing note start empty. The pricing note is shown to operators and is not copied into a quote. Quotes still need an amount typed on the job.
+
+Reports are counted from jobs, paid invoices, ratings, and the time of the first assignment. Role changes are written to `audit_log`. Job assignment was already written there. The admin list of technicians shows only the last two digits of an ID. The full ID and the certificate files stay on the application page.
+
+## Phase 5 test checklist
+
+- [ ] An admin can change a user's role. The last admin cannot be removed. The change appears in the audit list without the person's ID number.
+- [ ] The technician list links to the application for the full ID and certificates, and the list itself masks the ID.
+- [ ] Saving settings changes the offer timeout, and leaves service areas and the pricing note blank until someone types them. A saved pricing note does not fill in a quote amount.
+- [ ] Reports show jobs per Nairobi day, the sum of paid invoices, completed jobs per technician, and the average time to the first assignment. Empty data stays empty.
+
 ## Not in this phase
 
-The installable app and payments. Do not start those from this branch.
+The installable app, M-Pesa payments, and the later A–G add-ons. Do not start those from this branch.
