@@ -7,6 +7,7 @@ import {
   approveApplication, createInvite, joinApi, reapproveRenewal, rejectApplication, requestInfo, setChecklist, staffQueue,
 } from "./join-api";
 import { jobs } from "./jobs";
+import { operatorApi } from "./operator";
 import { storeTechnicianPhoto } from "./portrait";
 import { technician } from "./technician";
 import { sendLoginCode } from "./sms";
@@ -277,6 +278,7 @@ api.post("/settings/probation", async (c) => {
 });
 
 api.route("/join", joinApi);
+api.route("/operator", operatorApi);
 api.route("/jobs", jobs);
 api.route("/technician", technician);
 

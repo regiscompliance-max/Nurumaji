@@ -166,6 +166,20 @@ Uploaded ID images, the onboarding selfie, and certificates are stored under `ap
 - [ ] Approve on probation leaves the technician eligible for standard jobs only. After the admin sets N, urgent and emergency jobs stay withheld until that many jobs are completed, invoiced, or paid.
 - [ ] The shared minute cron sends one SMS at 30 days and one at 7 days before a licence expiry. On the expiry date it sets `approved = 0`, sends one SMS, and the technician dashboard shows the renewal banner. Re-approve after the renewal is checked turns offers back on.
 
+## Phase 4: operator board, quotes and invoices
+
+Apply migration `0006_quotes_invoices.sql` with the same local and remote D1 commands. It adds `quotes` and `invoices`. There is no new secret, cron, or bucket. Quote and invoice amounts are typed by the operator. This phase does not set a price, and it does not take M-Pesa payments. Marking an invoice paid only records that the operator has received the money.
+
+An admin can open the operator board. Creating a phone-in job uses the existing dispatch. Assigning or reassigning writes `audit_log`.
+
+## Phase 4 test checklist
+
+- [ ] The operator board filters by status, trade, urgency, and area, and lists the nearest on-duty suggestions.
+- [ ] An operator can create a job for a client who phones in. A new number is stored as `client`. The job is offered by the existing dispatch.
+- [ ] An operator can assign or reassign an approved technician. The open offers close, the technician gets a text, and the audit log records the change.
+- [ ] Sending a quote requires an amount in whole shillings. The client can approve a `sent` quote, and the timeline records it.
+- [ ] After the work is completed, an operator can create an invoice for an amount they type. Marking it paid sets the job to `paid`. The client page does not claim the site collected the money.
+
 ## Not in this phase
 
-The installable app and payments. Do not start those from this branch.
+Admin reports, the installable app, and payments. Do not start those from this branch.
