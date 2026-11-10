@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { api } from "./api";
 import { expireOffers } from "./dispatch-run";
+import { licenceCheck } from "./licence-check";
 import { portal } from "./portal";
 import type { AppContext, Bindings } from "./types";
 
@@ -35,6 +36,6 @@ app.onError((error, c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(expireOffers(env));
+    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env)]));
   },
 };

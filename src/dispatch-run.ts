@@ -18,6 +18,7 @@ type JobRow = {
 type TechRow = {
   user_id: string;
   phone: string;
+  name: string | null;
   trades: string;
   base_lat: number | null;
   base_lng: number | null;
@@ -29,6 +30,20 @@ type TechRow = {
 
 export async function dispatchJob(env: Bindings, jobId: string): Promise<void> {
   await offerNext(env, jobId);
+}
+
+export async function suggestTechnicians(env: Bindings, jobId: string) {
+  const job = await env.DB.prepare(
+    "SELECT id, trade, urgency, address, lat, lng, status, assigned_tech_id, operator_flag FROM jobs WHERE id = ?"
+  ).bind(jobId).first<JobRow>();
+  if (!job || job.lat == null || job.lng == null) return [];
+  const excludeBusy = (await setting(env, "exclude_busy_technicians", "1")) !== "0";
+  const ranked = await eligibleTechnicians(env, job, excludeBusy);
+  return ranked.slice(0, 3).map((tech) => ({
+    userId: tech.userId,
+    name: tech.name || "Technician",
+    distanceKm: Math.round(tech.distanceKm * 10) / 10,
+  }));
 }
 
 export async function expireOffers(env: Bindings): Promise<void> {
@@ -106,7 +121,7 @@ async function offerNext(env: Bindings, jobId: string): Promise<void> {
 
 async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: boolean) {
   const techs = await env.DB.prepare(
-    `SELECT users.id AS user_id, users.phone, technician_profiles.trades, technician_profiles.base_lat,
+    `SELECT users.id AS user_id, users.phone, users.name, technician_profiles.trades, technician_profiles.base_lat,
             technician_profiles.base_lng, technician_profiles.radius_km, technician_profiles.on_duty,
             technician_profiles.approved, technician_profiles.rating_avg
      FROM technician_profiles
@@ -133,9 +148,25 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
     if (tech.base_lat == null || tech.base_lng == null || tech.radius_km == null) continue;
     const distanceKm = haversineKm(job.lat as number, job.lng as number, tech.base_lat, tech.base_lng);
     if (distanceKm > tech.radius_km) continue;
-    candidates.push({ userId: tech.user_id, phone: tech.phone, distanceKm, ratingAvg: tech.rating_avg ?? 0 });
+    if (await probationBlocks(env, tech.user_id, job.urgency)) continue;
+    candidates.push({ userId: tech.user_id, name: tech.name, phone: tech.phone, distanceKm, ratingAvg: tech.rating_avg ?? 0 });
   }
   return rankCandidates(candidates);
+}
+
+async function probationBlocks(env: Bindings, userId: string, urgency: string): Promise<boolean> {
+  if (urgency === "standard") return false;
+  const probation = await env.DB.prepare(
+    "SELECT id FROM technician_applications WHERE user_id = ? AND status = 'probation' LIMIT 1"
+  ).bind(userId).first();
+  if (!probation) return false;
+  const requiredText = await setting(env, "probation_completed_jobs", "");
+  const required = Number(requiredText);
+  if (!Number.isInteger(required) || required <= 0) return true;
+  const done = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM jobs WHERE assigned_tech_id = ? AND status IN ('completed', 'invoiced', 'paid')"
+  ).bind(userId).first<{ n: number }>();
+  return (done?.n ?? 0) < required;
 }
 
 function hasTrade(trades: string, trade: string): boolean {

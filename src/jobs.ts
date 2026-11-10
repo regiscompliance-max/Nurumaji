@@ -27,6 +27,7 @@ type JobRow = {
   lng: number | null;
   preferred_time: number | null;
   status: string;
+  assigned_tech_id?: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -155,7 +156,7 @@ jobs.post("/:id/rating", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(
       "INSERT INTO ratings (id, job_id, client_id, tech_id, score, comment) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(crypto.randomUUID(), job.id, user.id, user.id, parsed.data.score, parsed.data.comment || null),
+    ).bind(crypto.randomUUID(), job.id, user.id, job.assigned_tech_id || user.id, parsed.data.score, parsed.data.comment || null),
     c.env.DB.prepare(
       "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'rated', ?, ?)"
     ).bind(crypto.randomUUID(), job.id, user.id, `Rated ${parsed.data.score} out of 5`, now),
@@ -186,7 +187,7 @@ async function viewableJob(c: { env: AppContext["Bindings"] }, user: UserRow, id
 
 async function ownJob(c: { env: AppContext["Bindings"] }, user: UserRow, id: string): Promise<JobRow | null> {
   return c.env.DB.prepare(
-    `SELECT id, client_id, trade, description, urgency, address, lat, lng, preferred_time, status, created_at, updated_at
+    `SELECT id, client_id, trade, description, urgency, address, lat, lng, preferred_time, status, assigned_tech_id, created_at, updated_at
      FROM jobs WHERE id = ? AND client_id = ?`
   ).bind(id, user.id).first<JobRow>();
 }
@@ -202,6 +203,7 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
     events: events.results ?? [],
     photos: photos.results ?? [],
     quotes: quotes.results ?? [],
+    invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null }>()).results ?? [],
     rating: rating ?? null,
   };
 }
