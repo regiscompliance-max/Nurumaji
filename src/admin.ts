@@ -6,7 +6,7 @@ import type { AppContext, Role } from "./types";
 
 const ROLES = ["client", "technician", "operator", "admin"] as const;
 
-export const adminApi = new Hono<AppContext>();
+export const adminApi = new Hono<AppContext>({ strict: false });
 
 adminApi.use("*", async (c, next) => {
   const user = await readSession(c);

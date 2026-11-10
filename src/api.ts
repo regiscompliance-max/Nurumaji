@@ -26,7 +26,7 @@ const verifySchema = z.object({
   code: z.string().regex(/^\d{6}$/),
 });
 
-export const api = new Hono<AppContext>();
+export const api = new Hono<AppContext>({ strict: false });
 
 api.use("*", async (c, next) => {
   if (!c.env.DB) return c.json({ error: "The portal database is not connected." }, 503);

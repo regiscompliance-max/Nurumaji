@@ -7,7 +7,7 @@ import { readSession } from "./session";
 import { sendSms } from "./sms";
 import type { AppContext, UserRow } from "./types";
 
-export const operatorApi = new Hono<AppContext>();
+export const operatorApi = new Hono<AppContext>({ strict: false });
 
 operatorApi.use("*", async (c, next) => {
   const user = await readSession(c);

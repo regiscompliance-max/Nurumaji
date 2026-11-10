@@ -7,7 +7,7 @@ import { endSession, readSession } from "./session";
 import { lookupService } from "./services.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261106d";
+const ASSET = "20261110";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -32,7 +32,7 @@ const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   },
 };
 
-export const portal = new Hono<AppContext>();
+export const portal = new Hono<AppContext>({ strict: false });
 
 portal.use("*", async (c, next) => {
   c.header("Cache-Control", "no-store");

@@ -37,7 +37,7 @@ type ApplicationRow = {
   updated_at: number;
 };
 
-export const joinApi = new Hono<AppContext>();
+export const joinApi = new Hono<AppContext>({ strict: false });
 
 joinApi.use("*", async (c, next) => {
   const user = await readSession(c);

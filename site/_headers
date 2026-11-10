@@ -35,6 +35,18 @@
   ! Cache-Control
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
+/assets/book.js
+  ! Cache-Control
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/assets/portal.css
+  ! Cache-Control
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/assets/portal.js
+  ! Cache-Control
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
 # The rest of the site keeps geolocation off. /join needs it for "Use my location".
 /join
   ! Permissions-Policy
