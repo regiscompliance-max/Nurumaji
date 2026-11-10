@@ -6,6 +6,7 @@ import { endSession, readSession, startSession } from "./session";
 import {
   approveApplication, createInvite, joinApi, reapproveRenewal, rejectApplication, requestInfo, setChecklist, staffQueue,
 } from "./join-api";
+import { adminApi } from "./admin";
 import { jobs } from "./jobs";
 import { operatorApi } from "./operator";
 import { storeTechnicianPhoto } from "./portrait";
@@ -278,6 +279,7 @@ api.post("/settings/probation", async (c) => {
 });
 
 api.route("/join", joinApi);
+api.route("/admin", adminApi);
 api.route("/operator", operatorApi);
 api.route("/jobs", jobs);
 api.route("/technician", technician);
