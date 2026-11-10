@@ -44,6 +44,8 @@ npx wrangler r2 bucket create nurumaji-uploads
 
 Production text messages use Africa's Talking. Do not set `OTP_DEV_MODE` on production.
 
+`AT_API_KEY` and `AT_USERNAME` are required. `AT_SENDER_ID` is optional. When the username is `sandbox`, messages go to `https://api.sandbox.africastalking.com/version1/messaging` and the sender id is not sent. Any other username uses `https://api.africastalking.com/version1/messaging`, and `from` is included only when `AT_SENDER_ID` is set.
+
 ```bash
 npx wrangler secret put AT_API_KEY
 npx wrangler secret put AT_USERNAME
