@@ -55,7 +55,7 @@ function stamp(c: Context<AppContext>, res: Response): Response {
   if (new URL(c.req.url).protocol === "https:") headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   headers.set(
     "Content-Security-Policy",
-    "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'"
+    "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' https://*.tile.openstreetmap.org; font-src 'self'; connect-src 'self'"
   );
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }

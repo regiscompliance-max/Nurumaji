@@ -1,4 +1,4 @@
-import { offerSlots, rankCandidates, shouldFlag, haversineKm } from "./dispatch.mjs";
+import { offerSlots, positionForDispatch, rankCandidates, shouldFlag, haversineKm } from "./dispatch.mjs";
 import { postAfricaSms } from "./sms";
 import type { Bindings } from "./types";
 
@@ -23,6 +23,9 @@ type TechRow = {
   trades: string;
   base_lat: number | null;
   base_lng: number | null;
+  live_lat: number | null;
+  live_lng: number | null;
+  live_updated_at: number | null;
   radius_km: number | null;
   on_duty: number;
   approved: number;
@@ -123,7 +126,8 @@ async function offerNext(env: Bindings, jobId: string): Promise<void> {
 async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: boolean) {
   const techs = await env.DB.prepare(
     `SELECT users.id AS user_id, users.phone, users.name, technician_profiles.trades, technician_profiles.base_lat,
-            technician_profiles.base_lng, technician_profiles.radius_km, technician_profiles.on_duty,
+            technician_profiles.base_lng, technician_profiles.live_lat, technician_profiles.live_lng,
+            technician_profiles.live_updated_at, technician_profiles.radius_km, technician_profiles.on_duty,
             technician_profiles.approved, technician_profiles.rating_avg
      FROM technician_profiles
      JOIN users ON users.id = technician_profiles.user_id
@@ -146,8 +150,16 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
   for (const tech of techs.results ?? []) {
     if (seen.has(tech.user_id) || busy.has(tech.user_id)) continue;
     if (!hasTrade(tech.trades, job.trade)) continue;
-    if (tech.base_lat == null || tech.base_lng == null || tech.radius_km == null) continue;
-    const distanceKm = haversineKm(job.lat as number, job.lng as number, tech.base_lat, tech.base_lng);
+    const spot = positionForDispatch({
+      baseLat: tech.base_lat,
+      baseLng: tech.base_lng,
+      liveLat: tech.live_lat,
+      liveLng: tech.live_lng,
+      liveUpdatedAt: tech.live_updated_at,
+      now: Math.floor(Date.now() / 1000),
+    });
+    if (!spot || tech.radius_km == null) continue;
+    const distanceKm = haversineKm(job.lat as number, job.lng as number, spot.lat, spot.lng);
     if (distanceKm > tech.radius_km) continue;
     if (await probationBlocks(env, tech.user_id, job.urgency)) continue;
     candidates.push({ userId: tech.user_id, name: tech.name, phone: tech.phone, distanceKm, ratingAvg: tech.rating_avg ?? 0 });

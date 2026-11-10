@@ -1,5 +1,16 @@
 // Pure dispatch rules from the portal spec. No database access.
 
+const LIVE_POSITION_SECONDS = 30 * 60;
+
+// A fresh shared position is used for distance. Otherwise the saved base is used.
+export function positionForDispatch({ baseLat, baseLng, liveLat, liveLng, liveUpdatedAt, now, freshSeconds = LIVE_POSITION_SECONDS }) {
+  const fresh = Number.isFinite(liveLat) && Number.isFinite(liveLng) && Number.isFinite(liveUpdatedAt)
+    && now >= liveUpdatedAt && now - liveUpdatedAt <= freshSeconds;
+  if (fresh) return { lat: liveLat, lng: liveLng, live: true };
+  if (Number.isFinite(baseLat) && Number.isFinite(baseLng)) return { lat: baseLat, lng: baseLng, live: false };
+  return null;
+}
+
 export function haversineKm(lat1, lng1, lat2, lng2) {
   const radius = 6371;
   const rad = (degrees) => (degrees * Math.PI) / 180;

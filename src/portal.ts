@@ -2,12 +2,12 @@ import { Hono } from "hono";
 import { detailPage, invitePage, queuePage } from "./application-pages";
 import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
-import { loadClientJobs } from "./jobs";
+import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
 import { lookupService } from "./services.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261110c";
+const ASSET = "20261110d";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -76,11 +76,16 @@ portal.get("/book", async (c) => {
 portal.get("/jobs/:id", async (c) => {
   const user = await readSession(c);
   if (!user) return c.redirect("/portal/login", 303);
+  if (user.role === "operator" || user.role === "admin") {
+    const group = await loadAnyJob(c, c.req.param("id"));
+    if (!group) return c.html(page("Job", shell(user.phone, "<h1>Job not found</h1><p><a href=\"/portal/operator\">Back to the board</a></p>")), 404);
+    return c.html(jobPage(user.phone, group, "/portal/operator", false));
+  }
   if (user.role !== "client") return c.html(forbiddenPage(user.role), 403);
   const groups = await loadClientJobs(c, user.id);
   const group = groups.find((item) => item.job.id === c.req.param("id"));
   if (!group) return c.html(page("Job", shell(user.phone, "<h1>Job not found</h1><p><a href=\"/portal/client\">Back to your jobs</a></p>")), 404);
-  return c.html(jobPage(user.phone, group));
+  return c.html(jobPage(user.phone, group, "/portal/client"));
 });
 
 for (const role of ["client", "technician", "operator", "admin"] as const) {
@@ -186,7 +191,7 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
       <form method="post" action="/api/technician/jobs/${assigned.id}/progress" enctype="multipart/form-data" class="form">
         <input type="hidden" name="status" value="${nextStatus}">
         <div class="field"><label for="note">Note</label><textarea id="note" name="note" maxlength="500"></textarea></div>
-        ${nextStatus === "completed" ? `<div class="field"><label for="materials">Materials used</label><input id="materials" name="materials" maxlength="500"></div>
+        ${nextStatus === "completed" ? `${testFields(assigned.trade)}<div class="field"><label for="materials">Materials used</label><input id="materials" name="materials" maxlength="500"></div>
         <div class="field"><label for="minutesSpent">Minutes spent</label><input id="minutesSpent" name="minutesSpent" inputmode="numeric"></div>` : ""}
         <div class="field"><label for="photo">Photo, optional</label><input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp"></div>
         <button class="btn btn-amber" type="submit">${nextLabel}</button>
@@ -210,6 +215,8 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
       <input type="hidden" name="onDuty" value="${duty ? "0" : "1"}">
       <button class="btn ${duty ? "btn-line-ink" : "btn-amber"}" type="submit">${duty ? "Go off duty" : "Go on duty"}</button>
     </form>
+    <label class="trade-choice"><input id="share-location" type="checkbox"${duty ? "" : " disabled"}> Share my location while on duty</label>
+    <p class="muted" id="share-note">This shares your position only while this page is open and you are on duty. It stops when you switch it off, go off duty, or leave. Operators and admins can see it. Clients cannot.</p>
     <div class="job-stack" id="offers">${offerHtml}</div>
     ${workHtml}
     <h2 id="profile">Base and radius</h2>
@@ -273,6 +280,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
       <h2>${escapeHtml(titleCase(job.trade))} · ${escapeHtml(job.urgency)}</h2>
       <p>${escapeHtml(job.description)}</p>
       ${job.address ? `<p>${escapeHtml(job.address)}</p>` : ""}
+      <p><a href="/portal/jobs/${job.id}">Open job</a></p>
       <h3>Suggested</h3><ul>${suggested}</ul>
       <form method="post" action="/api/operator/jobs/${job.id}/assign" class="form">
         <div class="field"><label for="tech-${job.id}">Assign</label><select id="tech-${job.id}" name="techId" required><option value="">Choose</option>${options}</select></div>
@@ -288,6 +296,10 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <p><a href="/portal/applications">Review applications</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
     ${await pricingNote(c)}
+    <h2>Live map</h2>
+    <p class="muted">Open jobs and technicians who are sharing a location. A position older than 30 minutes is hidden. Clients do not see this map.</p>
+    <div id="ops-map" class="ops-map" role="region" aria-label="Map of open jobs and on-duty technicians"></div>
+    <ul class="map-legend"><li><span class="dot dot-standard"></span> Standard</li><li><span class="dot dot-urgent"></span> Urgent</li><li><span class="dot dot-emergency"></span> Emergency</li><li><span class="dot dot-tech"></span> Technician</li></ul>
     <form method="get" action="/portal/operator" class="form board-filters">
       ${select("status", "Status", ["new", "offered", "assigned", "en_route", "on_site", "completed", "invoiced", "paid", "cancelled"])}
       ${select("trade", "Trade", ["electrical", "plumbing"])}
@@ -306,7 +318,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
       <button class="btn btn-amber" type="submit">Create job</button>
     </form>
     <div class="job-stack">${cards.join("") || "<p>No jobs match.</p>"}</div>
-  `));
+  `), false, true);
 }
 
 async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone: string }): Promise<string> {
@@ -532,14 +544,56 @@ function clientPage(phone: string, groups: Awaited<ReturnType<typeof loadClientJ
   `));
 }
 
-function jobPage(phone: string, group: Awaited<ReturnType<typeof loadClientJobs>>[number]): string {
+function jobPage(phone: string, group: Awaited<ReturnType<typeof loadClientJobs>>[number], back: string, forClient = true): string {
   return page("Job", shell(phone, `
-    <p><a href="/portal/client">Your jobs</a></p>
-    ${jobBlock(group, false)}
+    <p><a href="${back}">Back</a></p>
+    ${jobBlock(group, false, forClient)}
   `));
 }
 
-function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], compact: boolean): string {
+function testFields(trade: string): string {
+  const note = `<p class="muted">Test sheet. Results are recorded by the technician. These fields do not set a pass mark.</p>`;
+  const overall = `<div class="field"><label for="result">Overall result</label><select id="result" name="result" required><option value="">Choose</option><option value="pass">Pass</option><option value="fail">Fail</option></select></div>
+    <div class="field"><label for="notes">Test notes</label><textarea id="notes" name="notes" maxlength="1000"></textarea></div>`;
+  if (trade === "plumbing") {
+    return `<fieldset class="test-sheet">${note}
+      <div class="field"><label for="pressureBar">Pressure test, bar</label><input id="pressureBar" name="pressureBar" inputmode="decimal" required></div>
+      <div class="field"><label for="durationMin">Duration, minutes</label><input id="durationMin" name="durationMin" inputmode="numeric" required></div>
+      <div class="field"><label for="leakCheck">Leak check</label><select id="leakCheck" name="leakCheck" required><option value="">Choose</option><option value="pass">Pass</option><option value="fail">Fail</option></select></div>
+      ${overall}</fieldset>`;
+  }
+  return `<fieldset class="test-sheet">${note}
+    <div class="field"><label for="insulationMohm">Insulation resistance, MΩ</label><input id="insulationMohm" name="insulationMohm" inputmode="decimal" required></div>
+    <div class="field"><label for="zsOhm">Earth loop impedance Zs, Ω</label><input id="zsOhm" name="zsOhm" inputmode="decimal" required></div>
+    <div class="field"><label for="rcdMs">RCD trip time, ms</label><input id="rcdMs" name="rcdMs" inputmode="decimal" required></div>
+    <div class="field"><label for="polarity">Polarity</label><select id="polarity" name="polarity" required><option value="">Choose</option><option value="pass">Pass</option><option value="fail">Fail</option></select></div>
+    ${overall}</fieldset>`;
+}
+
+function testSheetHtml(sheet: { trade: string; readings_json: string; result: string; notes: string | null; created_at: number; filler: string | null } | null): string {
+  if (!sheet) return "";
+  let readings: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(sheet.readings_json) as unknown;
+    if (parsed && typeof parsed === "object") readings = parsed as Record<string, unknown>;
+  } catch { readings = {}; }
+  const labels: Record<string, string> = {
+    insulationMohm: "Insulation resistance, MΩ",
+    zsOhm: "Earth loop impedance Zs, Ω",
+    rcdMs: "RCD trip time, ms",
+    polarity: "Polarity",
+    pressureBar: "Pressure test, bar",
+    durationMin: "Duration, minutes",
+    leakCheck: "Leak check",
+  };
+  const rows = Object.entries(readings).map(([key, value]) => `<li>${escapeHtml(labels[key] || key)}: ${escapeHtml(String(value ?? ""))}</li>`).join("");
+  return `<section class="doc-block" id="test-sheet"><h3>Test sheet</h3>
+    <p class="muted">Results are recorded by the technician.</p>
+    <ul>${rows}<li>Overall result: ${escapeHtml(sheet.result)}</li>${sheet.notes ? `<li>Notes: ${escapeHtml(sheet.notes)}</li>` : ""}
+    <li>Recorded ${escapeHtml(formatWhen(sheet.created_at))}${sheet.filler ? ` by ${escapeHtml(sheet.filler)}` : ""}</li></ul></section>`;
+}
+
+function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], compact: boolean, forClient = true): string {
   const job = group.job;
   const when = job.preferred_time ? formatWhen(job.preferred_time) : "No preferred time yet";
   const photos = group.photos.map((photo) =>
@@ -547,20 +601,20 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
   ).join("");
   const quotes = group.quotes.length
     ? group.quotes.map((quote) => {
-      const approve = quote.status === "sent"
+      const approve = forClient && quote.status === "sent"
         ? `<form method="post" action="/api/jobs/${job.id}/quotes/${quote.id}/approve"><button class="btn btn-amber" type="submit">Approve quote</button></form>`
         : `<p>Status: ${escapeHtml(quote.status)}</p>`;
       return `<div><p><strong>KES ${quote.amount_kes.toLocaleString("en-KE")}</strong></p>${approve}</div>`;
     }).join("")
-    : `<p class="muted">A quote will appear here when one is sent. You can approve it from this page.</p>`;
+    : `<p class="muted">${forClient ? "A quote will appear here when one is sent. You can approve it from this page." : "No quote has been sent."}</p>`;
   const invoices = group.invoices.length
     ? group.invoices.map((invoice) => `<p><strong>KES ${invoice.amount_kes.toLocaleString("en-KE")}</strong> · ${escapeHtml(invoice.status)}</p>`).join("") + `<p class="muted">Payment through the site is not switched on. An operator records it when it has been received.</p>`
     : "";
   const rating = group.rating
-    ? `<p>You rated this job ${group.rating.score} out of 5.</p>`
-    : job.status === "completed"
+    ? `<p>${forClient ? "You rated" : "Rated"} this job ${group.rating.score} out of 5.</p>`
+    : forClient && job.status === "completed"
       ? `<form method="post" action="/api/jobs/${job.id}/rating"><div class="field"><label for="score">Rating</label><select id="score" name="score"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></div><div class="field"><label for="comment">Comment, optional</label><textarea id="comment" name="comment" maxlength="500"></textarea></div><button class="btn btn-amber" type="submit">Save rating</button></form>`
-      : `<p class="muted">You can rate the job after the work is completed.</p>`;
+      : `<p class="muted">${forClient ? "You can rate the job after the work is completed." : "No rating yet."}</p>`;
   const timeline = `<ol class="timeline">${group.events.map((event) =>
     `<li><time datetime="${new Date(event.created_at * 1000).toISOString()}">${escapeHtml(formatWhen(event.created_at))}</time><strong>${escapeHtml(eventLabel(event.type))}</strong>${event.note && event.note !== eventLabel(event.type) ? `<span>${escapeHtml(event.note)}</span>` : ""}</li>`
   ).join("")}</ol>`;
@@ -575,7 +629,7 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
     <h3>Timeline</h3>
     ${timeline}
     ${photos ? `<div class="photo-row">${photos}</div>` : ""}
-    ${compact ? "" : `<section class="doc-block"><h3>Quote</h3>${quotes}</section>${invoices ? `<section class="doc-block"><h3>Invoice</h3>${invoices}</section>` : ""}<h3>Rating</h3>${rating}`}
+    ${compact ? "" : `<section class="doc-block"><h3>Quote</h3>${quotes}</section>${invoices ? `<section class="doc-block"><h3>Invoice</h3>${invoices}</section>` : ""}${testSheetHtml(group.testSheet)}<h3>Rating</h3>${rating}`}
     ${compact ? `<p><a href="/portal/jobs/${job.id}">Quote and rating</a></p>` : ""}
   </article>`;
 }
@@ -662,7 +716,7 @@ function forbiddenPage(role: Role): string {
   );
 }
 
-function page(title: string, body: string, script = false): string {
+function page(title: string, body: string, script = false, map = false): string {
   return `<!doctype html>
 <html lang="en-KE">
 <head>
@@ -674,10 +728,12 @@ function page(title: string, body: string, script = false): string {
 <link rel="icon" href="/assets/favicon.svg?v=${ASSET}" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/styles.css?v=${ASSET}">
 <link rel="stylesheet" href="/assets/portal.css?v=${ASSET}">
+${map ? `<link rel="stylesheet" href="/assets/leaflet/leaflet.css?v=${ASSET}">` : ""}
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <div id="main">${body}</div>
+${map ? `<script src="/assets/leaflet/leaflet.js?v=${ASSET}" defer></script><script src="/assets/ops-map.js?v=${ASSET}" defer></script>` : ""}
 ${script ? `<script src="/assets/portal.js?v=${ASSET}" defer></script>` : ""}
 </body>
 </html>`;

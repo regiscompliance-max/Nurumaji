@@ -4,6 +4,7 @@ import { nowSeconds } from "./crypto";
 import { acceptOffer, declineOffer } from "./dispatch-run";
 import { storeTechnicianPhoto } from "./portrait";
 import { readSession } from "./session";
+import { validateTestSheet } from "./test-sheet.mjs";
 import type { AppContext } from "./types";
 
 const tradesSchema = z.array(z.enum(["electrical", "plumbing"])).min(1);
@@ -100,6 +101,7 @@ technician.post("/duty", async (c) => {
     return c.json({ error: "Save a base location and radius before going on duty." }, 400);
   }
   await c.env.DB.prepare("UPDATE technician_profiles SET on_duty = ? WHERE user_id = ?").bind(onDuty ? 1 : 0, user.id).run();
+  if (!onDuty) await clearLivePosition(c.env, user.id);
   if (wantsHtml(c)) return c.redirect("/portal/technician", 303);
   return c.json({ ok: true, onDuty });
 });
@@ -119,6 +121,29 @@ technician.post("/offers/:id/decline", async (c) => {
   const error = await declineOffer(c.env, c.req.param("id"), user.id);
   if (error) return c.json({ error }, 400);
   if (wantsHtml(c)) return c.redirect("/portal/technician", 303);
+  return c.json({ ok: true });
+});
+
+technician.post("/location", async (c) => {
+  const user = c.get("user");
+  if (user.role !== "technician") return c.json({ error: "Technicians only." }, 403);
+  const raw = await readBody(c);
+  if (raw.sharing === false || raw.sharing === "0") {
+    await clearLivePosition(c.env, user.id);
+    return c.json({ ok: true });
+  }
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    return c.json({ error: "That location could not be read." }, 400);
+  }
+  const profile = await c.env.DB.prepare(
+    "SELECT on_duty FROM technician_profiles WHERE user_id = ?"
+  ).bind(user.id).first<{ on_duty: number }>();
+  if (profile?.on_duty !== 1) return c.json({ error: "Go on duty before sharing your location." }, 400);
+  await c.env.DB.prepare(
+    "UPDATE technician_profiles SET live_lat = ?, live_lng = ?, live_updated_at = ? WHERE user_id = ?"
+  ).bind(lat, lng, nowSeconds(), user.id).run();
   return c.json({ ok: true });
 });
 
@@ -147,10 +172,28 @@ technician.post("/jobs/:id/progress", async (c) => {
   ).bind(c.req.param("id"), user.id).first<{ id: string; status: string; assigned_tech_id: string }>();
   if (!job) return c.json({ error: "That job is not assigned to you." }, 404);
   if (NEXT[job.status] !== parsed.data.status) return c.json({ error: "Update the job one step at a time." }, 400);
+  const full = await c.env.DB.prepare("SELECT trade FROM jobs WHERE id = ?").bind(job.id).first<{ trade: string }>();
+  let sheet: ReturnType<typeof validateTestSheet> | null = null;
+  if (parsed.data.status === "completed") {
+    sheet = validateTestSheet(full?.trade || "", raw);
+    if (sheet.error) return c.json({ error: sheet.error }, 400);
+  }
   if (photo && (!c.env.UPLOADS || !["image/jpeg", "image/png", "image/webp"].includes(photo.type) || photo.size > 5 * 1024 * 1024)) {
     return c.json({ error: photo && !c.env.UPLOADS ? "Photo storage is not connected yet." : "Photos must be JPG, PNG or WebP, and under 5 MB." }, photo && !c.env.UPLOADS ? 503 : 400);
   }
   const now = nowSeconds();
+  if (sheet && !sheet.error) {
+    const existing = await c.env.DB.prepare("SELECT id FROM job_test_sheets WHERE job_id = ?").bind(job.id).first();
+    if (!existing) {
+      await c.env.DB.prepare(
+        `INSERT INTO job_test_sheets (id, job_id, trade, readings_json, result, notes, filled_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(crypto.randomUUID(), job.id, full?.trade, JSON.stringify(sheet.readings), sheet.result, sheet.notes || null, user.id, now).run();
+      await c.env.DB.prepare(
+        "INSERT INTO audit_log (id, actor_id, action, details_json, created_at) VALUES (?, ?, 'test_sheet_recorded', ?, ?)"
+      ).bind(crypto.randomUUID(), user.id, JSON.stringify({ jobId: job.id, trade: full?.trade, result: sheet.result }), now).run();
+    }
+  }
   const note = parsed.data.note || statusNote(parsed.data.status);
   await c.env.DB.prepare(
     `UPDATE jobs SET status = ?, updated_at = ?,
@@ -184,6 +227,12 @@ function statusNote(status: string): string {
   if (status === "en_route") return "Technician on the way";
   if (status === "on_site") return "Technician on site";
   return "Work completed";
+}
+
+async function clearLivePosition(env: AppContext["Bindings"], userId: string): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE technician_profiles SET live_lat = NULL, live_lng = NULL, live_updated_at = NULL WHERE user_id = ?"
+  ).bind(userId).run();
 }
 
 function wantsHtml(c: { req: { header: (name: string) => string | undefined } }): boolean {

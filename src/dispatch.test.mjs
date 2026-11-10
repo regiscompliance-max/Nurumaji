@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { haversineKm, offerSlots, rankCandidates, shouldFlag } from "./dispatch.mjs";
+import { haversineKm, offerSlots, positionForDispatch, rankCandidates, shouldFlag } from "./dispatch.mjs";
 
 test("haversine is zero at the same point and about 1km nearby", () => {
   assert.equal(haversineKm(-1.2921, 36.8219, -1.2921, 36.8219), 0);
@@ -23,6 +23,23 @@ test("offers one at a time, or three at once for an emergency", () => {
   assert.equal(offerSlots({ urgency: "urgent", existingOffers: 1, openOffers: 0 }), 1);
   assert.equal(offerSlots({ urgency: "emergency", existingOffers: 0, openOffers: 0 }), 3);
   assert.equal(offerSlots({ urgency: "standard", existingOffers: 3, openOffers: 0 }), 0);
+});
+
+test("uses a fresh shared position and falls back to the base", () => {
+  const now = 1_000_000;
+  const live = positionForDispatch({
+    baseLat: -1.3, baseLng: 36.8, liveLat: -1.29, liveLng: 36.82, liveUpdatedAt: now - 60, now,
+  });
+  assert.equal(live?.live, true);
+  assert.equal(live?.lat, -1.29);
+  const stale = positionForDispatch({
+    baseLat: -1.3, baseLng: 36.8, liveLat: -1.29, liveLng: 36.82, liveUpdatedAt: now - 31 * 60, now,
+  });
+  assert.equal(stale?.live, false);
+  assert.equal(stale?.lat, -1.3);
+  assert.equal(positionForDispatch({
+    baseLat: null, baseLng: null, liveLat: null, liveLng: null, liveUpdatedAt: null, now,
+  }), null);
 });
 
 test("flags when three offers are used or nobody is left", () => {
