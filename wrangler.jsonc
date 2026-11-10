@@ -34,7 +34,7 @@
     {
       "binding": "DB",
       "database_name": "nurumaji-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "2d1bca54-51ac-480b-b106-b50ed80877a2",
       "migrations_dir": "migrations"
     }
   ]
