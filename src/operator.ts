@@ -90,7 +90,7 @@ operatorApi.post("/jobs/:id/quotes", async (c) => {
   const now = nowSeconds();
   const id = crypto.randomUUID();
   await c.env.DB.batch([
-    c.env.DB.prepare("INSERT INTO quotes (id, job_id, amount_kes, items_json, status, created_at) VALUES (?, ?, ?, ?, 'sent', ?)").bind(id, job.id, amount, items ? JSON.stringify(items) : null, now),
+    c.env.DB.prepare("INSERT INTO quotes (id, job_id, amount_kes, items_json, status, created_at) VALUES (?, ?, ?, ?, 'sent', ?)").bind(id, job.id, amount, JSON.stringify(items ?? []), now),
     c.env.DB.prepare("INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'quote_sent', ?, ?)").bind(crypto.randomUUID(), job.id, user.id, "Quote sent", now),
   ]);
   const phone = await phoneFor(c, job.client_id);
@@ -107,12 +107,12 @@ operatorApi.post("/jobs/:id/invoices", async (c) => {
   if (!Number.isInteger(amount) || amount < 1 || amount > 10_000_000) return c.json({ error: "Type the invoice amount in whole shillings." }, 400);
   const job = await c.env.DB.prepare("SELECT id, client_id, status FROM jobs WHERE id = ?").bind(c.req.param("id")).first<{ id: string; client_id: string; status: string }>();
   if (!job || !["completed", "invoiced"].includes(job.status)) return c.json({ error: "Invoice the job after the work is completed." }, 400);
-  const existing = await c.env.DB.prepare("SELECT id FROM invoices WHERE job_id = ? AND status = 'issued'").bind(job.id).first();
+  const existing = await c.env.DB.prepare("SELECT id FROM invoices WHERE job_id = ? AND status = 'unpaid'").bind(job.id).first();
   if (existing) return c.json({ error: "This job already has an open invoice." }, 400);
   const now = nowSeconds();
   const id = crypto.randomUUID();
   await c.env.DB.batch([
-    c.env.DB.prepare("INSERT INTO invoices (id, job_id, amount_kes, status) VALUES (?, ?, ?, 'issued')").bind(id, job.id, amount),
+    c.env.DB.prepare("INSERT INTO invoices (id, job_id, amount_kes, status) VALUES (?, ?, ?, 'unpaid')").bind(id, job.id, amount),
     c.env.DB.prepare("UPDATE jobs SET status = 'invoiced', updated_at = ? WHERE id = ?").bind(now, job.id),
     c.env.DB.prepare("INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'invoiced', ?, ?)").bind(crypto.randomUUID(), job.id, user.id, "Invoice sent", now),
   ]);
@@ -125,7 +125,7 @@ operatorApi.post("/jobs/:id/invoices", async (c) => {
 
 operatorApi.post("/jobs/:id/invoices/paid", async (c) => {
   const user = c.get("user");
-  const invoice = await c.env.DB.prepare("SELECT id FROM invoices WHERE job_id = ? AND status = 'issued'").bind(c.req.param("id")).first<{ id: string }>();
+  const invoice = await c.env.DB.prepare("SELECT id FROM invoices WHERE job_id = ? AND status = 'unpaid'").bind(c.req.param("id")).first<{ id: string }>();
   if (!invoice) return c.json({ error: "There is no open invoice to mark paid." }, 400);
   const now = nowSeconds();
   await c.env.DB.batch([

@@ -168,7 +168,7 @@ Uploaded ID images, the onboarding selfie, and certificates are stored under `ap
 
 ## Phase 4: operator board, quotes and invoices
 
-Apply migration `0006_quotes_invoices.sql` with the same local and remote D1 commands. It adds `quotes` and `invoices`. There is no new secret, cron, or bucket. Quote and invoice amounts are typed by the operator. This phase does not set a price, and it does not take M-Pesa payments. Marking an invoice paid only records that the operator has received the money.
+No new migration. `quotes` and `invoices` are already created by `0001_init.sql`. Quote status stays `draft`, `sent`, `approved`, or `rejected`. Invoice status stays `unpaid`, `paid`, or `void`. There is no new secret, cron, or bucket. Quote and invoice amounts are typed by the operator. This phase does not set a price, and it does not take M-Pesa payments. Marking an invoice paid only records that the operator has received the money.
 
 An admin can open the operator board. Creating a phone-in job uses the existing dispatch. Assigning or reassigning writes `audit_log`.
 
