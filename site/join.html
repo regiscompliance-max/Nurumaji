@@ -27,8 +27,8 @@
 <link rel="icon" href="/assets/favicon-16.png?v=20261106" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261106">
 <link rel="preload" href="/assets/fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/assets/styles.css?v=20261110">
-<link rel="stylesheet" href="/assets/join.css?v=20261106e">
+<link rel="stylesheet" href="/assets/styles.css?v=20261110b">
+<link rel="stylesheet" href="/assets/join.css?v=20261110b">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -64,12 +64,12 @@
 <p class="status" id="join-status" role="status"></p>
 <div id="step-otp" class="step-panel">
 <form id="otp-request" class="form"><div class="field"><label for="phone">Mobile number</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="07XX XXX XXX" required></div><button class="btn btn-amber" type="submit">Send code</button></form>
-<form id="otp-verify" class="form" hidden><div class="field"><label for="code">6-digit code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div><button class="btn btn-amber" type="submit">Continue</button></form>
+<form id="otp-verify" class="form" hidden><div class="field"><label for="code">6-digit code</label><input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div><button class="btn btn-amber" type="submit">Continue</button></form>
 <button class="btn btn-line-ink" type="button" id="otp-back" hidden>Use a different number</button>
 </div>
 <form id="step-personal" class="step-panel form" hidden>
 <div class="field"><label for="full-name">Full name</label><input id="full-name" required maxlength="80"></div>
-<div class="field"><label for="email">Email, optional</label><input id="email" type="email" maxlength="120"></div>
+<div class="field"><label for="email">Email, optional</label><input id="email" type="email" autocomplete="email" inputmode="email" maxlength="120"></div>
 <div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" required></div>
 <div class="field"><label for="id-number">National ID number</label><input id="id-number" inputmode="numeric" required></div>
 <div class="field"><label for="kra">KRA PIN</label><input id="kra" required maxlength="11" autocapitalize="characters"></div>
@@ -145,14 +145,14 @@
 <button class="btn btn-amber" type="submit">Save and continue</button>
 </form>
 <form id="step-payout" class="step-panel form" hidden>
-<div class="field"><label for="mpesa">M-Pesa number</label><input id="mpesa" type="tel" inputmode="tel" required></div>
+<div class="field"><label for="mpesa">M-Pesa number</label><input id="mpesa" type="tel" inputmode="tel" autocomplete="tel" required></div>
 <button class="btn btn-amber" type="submit">Save and continue</button>
 </form>
 <form id="step-references" class="step-panel form" hidden>
 <div class="field"><label for="ref1-name">First reference name</label><input id="ref1-name" required maxlength="80"></div>
-<div class="field"><label for="ref1-phone">First reference phone</label><input id="ref1-phone" type="tel" required></div>
+<div class="field"><label for="ref1-phone">First reference phone</label><input id="ref1-phone" type="tel" inputmode="tel" autocomplete="tel" required></div>
 <div class="field"><label for="ref2-name">Second reference name</label><input id="ref2-name" required maxlength="80"></div>
-<div class="field"><label for="ref2-phone">Second reference phone</label><input id="ref2-phone" type="tel" required></div>
+<div class="field"><label for="ref2-phone">Second reference phone</label><input id="ref2-phone" type="tel" inputmode="tel" autocomplete="tel" required></div>
 <label class="trade-choice"><input id="terms" type="checkbox" required> I agree to the terms and the code of conduct. The time of this agreement is stored with the application.</label>
 <button class="btn btn-amber" type="submit">Submit application</button>
 </form>

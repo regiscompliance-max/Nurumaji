@@ -27,7 +27,7 @@
 <link rel="icon" href="/assets/favicon-16.png?v=20261106" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261106">
 <link rel="preload" href="/assets/fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/assets/styles.css?v=20261110">
+<link rel="stylesheet" href="/assets/styles.css?v=20261110b">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -63,7 +63,7 @@
 <button class="btn btn-amber" type="submit">Send code</button>
 </form>
 <form id="book-verify" class="form" hidden>
-<div class="field"><label for="code">6-digit code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div>
+<div class="field"><label for="code">6-digit code</label><input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div>
 <button class="btn btn-amber" type="submit">Create the request</button>
 </form>
 <p class="status" id="book-status" role="status"></p>

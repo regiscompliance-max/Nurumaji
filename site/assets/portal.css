@@ -3,11 +3,13 @@
 .site-head .wrap{gap:12px}
 .portal-card{width:min(100%,440px);margin:48px auto;padding-inline:var(--gut);display:grid;gap:22px}
 .portal-card h1{font-size:clamp(40px,8vw,56px)}
-.portal-dash{display:grid;gap:16px;max-width:720px;padding-bottom:72px}
+.portal-dash{display:grid;gap:16px;max-width:720px;padding-bottom:72px;min-width:0}
+.portal-dash > .form{max-width:640px}
 .portal-empty{background:#fff;border:1px solid var(--rule);padding:28px;display:grid;gap:8px}
 .portal-empty h2{font-size:28px}
 .portal-empty p{color:var(--slate);margin:0}
-.job-stack{display:grid;gap:16px}
+.job-stack{display:grid;gap:16px;min-width:0}
+.portal-empty,.job-card,.timeline{overflow-wrap:anywhere;min-width:0}
 .job-card h2{font-size:28px}
 .job-card h3{font-family:var(--body);font-size:13px;font-weight:650;letter-spacing:.14em;text-transform:uppercase;margin:8px 0 0}
 .timeline{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:12px}
@@ -15,7 +17,7 @@
 .timeline time{color:var(--slate);font-size:13px}
 .photo-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .photo-row img{width:120px;height:90px;object-fit:cover;background:#fff}
-.trade-choice{display:flex;align-items:center;gap:10px;font-weight:650}
+.trade-choice{display:flex;align-items:center;gap:10px;font-weight:650;min-height:44px}
 .trade-choice input{width:22px;height:22px;accent-color:#1F5C62}
 .avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#E7E1D6;color:#10242E;border:1px solid var(--rule);flex:0 0 auto}
 .avatar-initials{display:inline-flex;align-items:center;justify-content:center;font-family:var(--display);font-size:24px;letter-spacing:.02em}
@@ -24,3 +26,12 @@
 .portrait-form{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 #otp-verify{display:grid;gap:16px}
 #otp-verify[hidden]{display:none}
+@media (min-width:1024px){
+  .portal-dash{max-width:1120px}
+  .job-stack{grid-template-columns:1fr 1fr}
+  .board-filters{max-width:none;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:end}
+}
+@media (max-width:420px){
+  .site-head .wrap{flex-wrap:wrap}
+  .site-head .brand img{width:154px;height:36px}
+}
