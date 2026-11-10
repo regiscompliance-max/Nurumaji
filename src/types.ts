@@ -8,6 +8,7 @@ export type Bindings = {
   AT_SENDER_ID?: string;
   OTP_DEV_MODE?: string;
   APP_URL?: string;
+  UPLOADS?: R2Bucket;
 };
 
 export type UserRow = {

@@ -27,6 +27,19 @@
   ! Cache-Control
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
+/assets/join.css
+  ! Cache-Control
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/assets/join.js
+  ! Cache-Control
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# The rest of the site keeps geolocation off. /join needs it for "Use my location".
+/join
+  ! Permissions-Policy
+  Permissions-Policy: camera=(), microphone=(), geolocation=(self), payment=(), usb=()
+
 /sitemap.xml
   Cache-Control: public, max-age=3600
 
