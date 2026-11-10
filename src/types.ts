@@ -5,6 +5,7 @@ export type Bindings = {
   ASSETS: Fetcher;
   AT_API_KEY?: string;
   AT_USERNAME?: string;
+  // Optional. Sent as `from` on the live API only. Ignored when AT_USERNAME is "sandbox".
   AT_SENDER_ID?: string;
   OTP_DEV_MODE?: string;
   APP_URL?: string;

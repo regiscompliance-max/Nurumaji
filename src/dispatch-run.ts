@@ -1,4 +1,5 @@
 import { offerSlots, rankCandidates, shouldFlag, haversineKm } from "./dispatch.mjs";
+import { postAfricaSms } from "./sms";
 import type { Bindings } from "./types";
 
 const MAX_OFFERS = 3;
@@ -196,25 +197,11 @@ async function sendDispatchSms(env: Bindings, phone: string, message: string): P
     console.log(`[DISPATCH_SMS] ${phone} ${message}`);
     return;
   }
-  if (!env.AT_API_KEY || !env.AT_USERNAME || !env.AT_SENDER_ID) {
+  if (!env.AT_API_KEY || !env.AT_USERNAME) {
     console.error("Dispatch SMS was not sent because Africa's Talking is not configured.");
     return;
   }
-  const body = new URLSearchParams({
-    username: env.AT_USERNAME,
-    to: phone,
-    message: `Nuru & Maji: ${message}`,
-    from: env.AT_SENDER_ID,
-  });
-  const response = await fetch("https://api.africastalking.com/version1/messaging", {
-    method: "POST",
-    headers: {
-      apiKey: env.AT_API_KEY,
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
+  const response = await postAfricaSms(env, phone, `Nuru & Maji: ${message}`);
   if (!response.ok) console.error("Dispatch SMS failed.");
 }
 
