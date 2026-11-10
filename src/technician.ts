@@ -30,7 +30,7 @@ const NEXT: Record<string, string> = {
   on_site: "completed",
 };
 
-export const technician = new Hono<AppContext>();
+export const technician = new Hono<AppContext>({ strict: false });
 
 technician.use("*", async (c, next) => {
   const user = await readSession(c);

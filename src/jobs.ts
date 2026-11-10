@@ -37,7 +37,7 @@ type PhotoRow = { id: string; created_at: number };
 type QuoteRow = { id: string; amount_kes: number; status: string; created_at: number };
 type RatingRow = { score: number; comment: string | null };
 
-export const jobs = new Hono<AppContext>();
+export const jobs = new Hono<AppContext>({ strict: false });
 
 jobs.post("/", async (c) => {
   const user = await readSession(c);
