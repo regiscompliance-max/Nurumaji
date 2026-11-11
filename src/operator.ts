@@ -17,6 +17,36 @@ operatorApi.use("*", async (c, next) => {
   await next();
 });
 
+operatorApi.get("/map", async (c) => {
+  const now = nowSeconds();
+  const jobs = await c.env.DB.prepare(
+    `SELECT id, trade, urgency, status, address, lat, lng
+     FROM jobs
+     WHERE status IN ('new', 'offered', 'assigned', 'en_route', 'on_site')
+       AND lat IS NOT NULL AND lng IS NOT NULL
+     ORDER BY updated_at DESC LIMIT 80`
+  ).all<{ id: string; trade: string; urgency: string; status: string; address: string | null; lat: number; lng: number }>();
+  const techs = await c.env.DB.prepare(
+    `SELECT users.id, users.name, technician_profiles.live_lat, technician_profiles.live_lng, technician_profiles.live_updated_at
+     FROM technician_profiles
+     JOIN users ON users.id = technician_profiles.user_id
+     WHERE users.role = 'technician' AND technician_profiles.approved = 1 AND technician_profiles.on_duty = 1
+       AND technician_profiles.live_lat IS NOT NULL AND technician_profiles.live_lng IS NOT NULL
+       AND technician_profiles.live_updated_at > ?
+     ORDER BY technician_profiles.live_updated_at DESC`
+  ).bind(now - 30 * 60).all<{ id: string; name: string | null; live_lat: number; live_lng: number; live_updated_at: number }>();
+  return c.json({
+    jobs: jobs.results ?? [],
+    technicians: (techs.results ?? []).map((tech) => ({
+      id: tech.id,
+      name: tech.name || "Technician",
+      lat: tech.live_lat,
+      lng: tech.live_lng,
+      updatedAt: tech.live_updated_at,
+    })),
+  });
+});
+
 operatorApi.post("/jobs", async (c) => {
   const user = c.get("user");
   const body = await readAny(c);

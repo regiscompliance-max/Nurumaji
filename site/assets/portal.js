@@ -105,4 +105,39 @@
       });
     });
   }
+
+  var share = document.getElementById("share-location");
+  var shareNote = document.getElementById("share-note");
+  if (share) {
+    var timer = null;
+    function postLocation(body) {
+      return fetch("/api/technician/location", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(body),
+      }).then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); });
+    }
+    function tick() {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(function (position) {
+        postLocation({ lat: position.coords.latitude, lng: position.coords.longitude }).then(function (result) {
+          if (!result.ok && shareNote) shareNote.textContent = result.data.error || "Location was not saved.";
+          else if (shareNote) shareNote.textContent = "Location shared. It updates about once a minute while this page stays open.";
+        });
+      }, function () {
+        share.checked = false;
+        if (shareNote) shareNote.textContent = "This browser did not share a location.";
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+    }
+    share.addEventListener("change", function () {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (!share.checked) {
+        postLocation({ sharing: false });
+        if (shareNote) shareNote.textContent = "Location sharing is off.";
+        return;
+      }
+      tick();
+      timer = setInterval(tick, 60000);
+    });
+  }
 })();

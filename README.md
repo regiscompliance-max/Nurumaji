@@ -148,7 +148,18 @@ Apply migration `0005_technician_applications.sql` with the same local and remot
 
 The daily licence check uses the existing every-minute cron. It does not add a second schedule. Inside the scheduled handler it runs at most once per Africa/Nairobi day and stores that date in `settings.licence_check_on`. No new secret is required. Uploads still use the existing `nurumaji-uploads` bucket.
 
-`/join` is a static page. Its script and stylesheet are versioned (`?v=20261106e`) and use the one-day cache rule. The page allows geolocation for this path only (`geolocation=(self)`), so “Use my location” can fill the base coordinates. There is no interactive map, because a map tile host would need a CSP change.
+`/join` is a static page. Its script and stylesheet are versioned (`?v=20261106e`) and use the one-day cache rule. The page allows geolocation for this path only (`geolocation=(self)`), so “Use my location” can fill the base coordinates. `/join` itself has no map.
+
+## Operator map and test sheets
+
+Apply these two migrations before the operator map or job test sheets are used. Both are additive.
+
+- `migrations/0006_technician_location.sql` adds `live_lat`, `live_lng`, and `live_updated_at` on `technician_profiles`.
+- `migrations/0007_job_test_sheets.sql` adds `job_test_sheets`.
+
+The operator board shows open jobs and on-duty technicians who are sharing a location. The map uses Leaflet from `/assets/leaflet/` and OpenStreetMap tiles. A shared position older than 30 minutes is hidden. Clients cannot see technician positions. A fresh shared position is also used when ranking dispatch distance, and the saved base is used when the shared position is missing or stale.
+
+A technician fills a test sheet before marking electrical or plumbing work completed. The sheet is a record of what they entered. It does not apply a pass mark.
 
 Probation length is the admin setting `probation_completed_jobs` on the Applications page. Leave it blank until Deng sets it. While it is blank, a technician on probation only receives standard-urgency jobs and does not leave probation automatically.
 

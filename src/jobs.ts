@@ -205,7 +205,34 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
     quotes: quotes.results ?? [],
     invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null }>()).results ?? [],
     rating: rating ?? null,
+    testSheet: await loadTestSheet(c, jobId),
   };
+}
+
+async function loadTestSheet(c: { env: AppContext["Bindings"] }, jobId: string) {
+  const row = await c.env.DB.prepare(
+    `SELECT job_test_sheets.trade, job_test_sheets.readings_json, job_test_sheets.result,
+            job_test_sheets.notes, job_test_sheets.created_at, users.name AS filler
+     FROM job_test_sheets
+     LEFT JOIN users ON users.id = job_test_sheets.filled_by
+     WHERE job_test_sheets.job_id = ?`
+  ).bind(jobId).first<{ trade: string; readings_json: string; result: string; notes: string | null; created_at: number; filler: string | null }>();
+  return row ?? null;
+}
+
+export async function loadAnyJob(c: { env: AppContext["Bindings"] }, jobId: string) {
+  const listed = await c.env.DB.prepare(
+    `SELECT jobs.id, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
+            jobs.preferred_time, jobs.created_at, jobs.assigned_tech_id,
+            tech.name AS tech_name,
+            CASE WHEN technician_profiles.photo_key IS NOT NULL AND technician_profiles.photo_key != '' THEN 1 ELSE 0 END AS tech_has_photo
+     FROM jobs
+     LEFT JOIN users AS tech ON tech.id = jobs.assigned_tech_id
+     LEFT JOIN technician_profiles ON technician_profiles.user_id = jobs.assigned_tech_id
+     WHERE jobs.id = ?`
+  ).bind(jobId).first<JobRow & { assigned_tech_id: string | null; tech_name: string | null; tech_has_photo: number }>();
+  if (!listed) return null;
+  return { job: listed, ...(await jobDetail(c, listed.id)) };
 }
 
 export async function loadClientJobs(c: { env: AppContext["Bindings"] }, userId: string) {
