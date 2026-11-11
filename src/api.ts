@@ -11,6 +11,7 @@ import { jobs } from "./jobs";
 import { operatorApi } from "./operator";
 import { storeTechnicianPhoto } from "./portrait";
 import { technician } from "./technician";
+import { loginSmsError } from "./sms-delivery.mjs";
 import { sendLoginCode } from "./sms";
 import type { AppContext, UserRow } from "./types";
 
@@ -64,9 +65,7 @@ api.post("/auth/otp/request", async (c) => {
     await sendLoginCode(c.env, phone, code);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "";
-    const message = reason === "sms_not_configured"
-      ? "Text messages are not configured yet."
-      : "The code could not be sent. Try again shortly.";
+    const message = loginSmsError(reason);
     return c.json({ error: message }, 503);
   }
 
