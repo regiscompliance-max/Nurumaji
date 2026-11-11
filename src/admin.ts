@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { recordComplianceDocument } from "./compliance-run";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
 import { parsePaymentSettings } from "./payments.mjs";
@@ -72,6 +73,31 @@ adminApi.get("/digests/latest", async (c) => {
     savedAt: row.created_at,
     stats: JSON.parse(row.stats_json) as unknown,
   });
+});
+
+adminApi.post("/documents", async (c) => {
+  const actor = c.get("user");
+  const body = await readAny(c);
+  const saved = await recordComplianceDocument(c.env, {
+    userId: String(body.userId || ""),
+    docType: String(body.docType || ""),
+    expiryDate: String(body.expiryDate || ""),
+    actorId: actor.id,
+    asAdmin: true,
+  });
+  if (saved.error) return c.json({ error: saved.error }, 400);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#documents", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/compliance-sms", async (c) => {
+  const body = await readAny(c);
+  const sms = body.sms === "1" || body.sms === "on" || body.sms === true;
+  await c.env.DB.prepare(
+    "INSERT INTO settings (key, value) VALUES ('compliance_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).bind(sms ? "1" : "0").run();
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#documents", 303);
+  return c.json({ ok: true });
 });
 
 adminApi.post("/rating-sms", async (c) => {

@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { api } from "./api";
 import { expireOffers } from "./dispatch-run";
 import { isCrossSite, needsOriginCheck, withoutTrailingSlash } from "./http-guards.mjs";
+import { complianceCheck } from "./compliance-run";
 import { licenceCheck } from "./licence-check";
 import { checkRatingInvites } from "./rating-run";
 import { ratingGet, ratingPost } from "./rating-page";
@@ -90,7 +91,7 @@ function errorPage(message: string): string {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), checkStuckJobs(env), checkPaymentReminders(env), writeDigests(env), checkRatingInvites(env)]).catch((error) => {
+    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), complianceCheck(env), checkStuckJobs(env), checkPaymentReminders(env), writeDigests(env), checkRatingInvites(env)]).catch((error) => {
       console.error(error);
     }));
   },
