@@ -173,6 +173,10 @@ Apply `migrations/0009_payment_reminders.sql` after `0008`. It adds a due date, 
 
 Apply `migrations/0010_report_snapshots.sql` after `0009`. It adds `report_snapshots` and leaves the daily and weekly summary texts off. `/portal/admin/reports` is for admins and operators. The saved digest JSON is admin-only. The existing every-minute cron writes yesterday at 07:00 Nairobi time, and the previous Monday–Sunday on Monday at the same hour.
 
+## Failed test follow-up
+
+Apply `migrations/0011_failed_test_followups.sql` after `0010`. It adds `job_followups`. A failed test sheet still completes the job, then books one return visit. The reports page already counts failed test sheets.
+
 Probation length is the admin setting `probation_completed_jobs` on the Applications page. Leave it blank until Deng sets it. While it is blank, a technician on probation only receives standard-urgency jobs and does not leave probation automatically.
 
 Uploaded ID images, the onboarding selfie, and certificates are stored under `applications/` and are served only to the applicant or an admin/operator through `/api/join/documents/:id`. They are not public, not written to logs, and not shown on client job pages.

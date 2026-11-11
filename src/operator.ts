@@ -53,7 +53,22 @@ operatorApi.post("/alerts/:id/acknowledge", async (c) => {
   const alert = await c.env.DB.prepare(
     "SELECT id, job_id, reason, acknowledged_at FROM job_alerts WHERE id = ?"
   ).bind(c.req.param("id")).first<{ id: string; job_id: string; reason: string; acknowledged_at: number | null }>();
-  if (!alert) return c.json({ error: "That alert is not on the board." }, 404);
+  if (!alert) {
+    const follow = await c.env.DB.prepare(
+      "SELECT id, original_job_id, acknowledged_at FROM job_followups WHERE id = ?"
+    ).bind(c.req.param("id")).first<{ id: string; original_job_id: string; acknowledged_at: number | null }>();
+    if (!follow) return c.json({ error: "That alert is not on the board." }, 404);
+    if (follow.acknowledged_at == null) {
+      await c.env.DB.prepare(
+        "UPDATE job_followups SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ? AND acknowledged_at IS NULL"
+      ).bind(now, user.id, follow.id).run();
+      await c.env.DB.prepare(
+        "INSERT INTO audit_log (id, actor_id, action, details_json, created_at) VALUES (?, ?, 'failed_test_acknowledged', ?, ?)"
+      ).bind(crypto.randomUUID(), user.id, JSON.stringify({ alertId: follow.id, jobId: follow.original_job_id, reason: "failed_test" }), now).run();
+    }
+    if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/operator", 303);
+    return c.json({ ok: true });
+  }
   if (alert.acknowledged_at == null) {
     await c.env.DB.prepare(
       "UPDATE job_alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ? AND acknowledged_at IS NULL"

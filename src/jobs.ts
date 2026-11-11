@@ -206,7 +206,25 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
     invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at, due_at, payment_method, mpesa_code FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null; due_at: number | null; payment_method: string | null; mpesa_code: string | null }>()).results ?? [],
     rating: rating ?? null,
     testSheet: await loadTestSheet(c, jobId),
+    followUp: await loadFollowUp(c, jobId),
   };
+}
+
+async function loadFollowUp(c: { env: AppContext["Bindings"] }, jobId: string) {
+  try {
+    const asOriginal = await c.env.DB.prepare(
+      "SELECT return_job_id FROM job_followups WHERE original_job_id = ?"
+    ).bind(jobId).first<{ return_job_id: string }>();
+    const asReturn = await c.env.DB.prepare(
+      "SELECT original_job_id FROM job_followups WHERE return_job_id = ?"
+    ).bind(jobId).first<{ original_job_id: string }>();
+    return {
+      returnJobId: asOriginal?.return_job_id ?? null,
+      originalJobId: asReturn?.original_job_id ?? null,
+    };
+  } catch {
+    return { returnJobId: null, originalJobId: null };
+  }
 }
 
 async function loadTestSheet(c: { env: AppContext["Bindings"] }, jobId: string) {

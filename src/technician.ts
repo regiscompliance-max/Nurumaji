@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
 import { acceptOffer, declineOffer } from "./dispatch-run";
+import { createReturnVisit } from "./followup-run";
 import { storeTechnicianPhoto } from "./portrait";
 import { readSession } from "./session";
 import { validateTestSheet } from "./test-sheet.mjs";
@@ -168,30 +169,35 @@ technician.post("/jobs/:id/progress", async (c) => {
   const parsed = progressSchema.safeParse(raw);
   if (!parsed.success) return c.json({ error: "That update could not be saved." }, 400);
   const job = await c.env.DB.prepare(
-    "SELECT id, status, assigned_tech_id FROM jobs WHERE id = ? AND assigned_tech_id = ?"
-  ).bind(c.req.param("id"), user.id).first<{ id: string; status: string; assigned_tech_id: string }>();
+    "SELECT id, status, assigned_tech_id, client_id, trade, address, lat, lng FROM jobs WHERE id = ? AND assigned_tech_id = ?"
+  ).bind(c.req.param("id"), user.id).first<{
+    id: string; status: string; assigned_tech_id: string; client_id: string; trade: string;
+    address: string | null; lat: number | null; lng: number | null;
+  }>();
   if (!job) return c.json({ error: "That job is not assigned to you." }, 404);
   if (NEXT[job.status] !== parsed.data.status) return c.json({ error: "Update the job one step at a time." }, 400);
-  const full = await c.env.DB.prepare("SELECT trade FROM jobs WHERE id = ?").bind(job.id).first<{ trade: string }>();
   let sheet: ReturnType<typeof validateTestSheet> | null = null;
   if (parsed.data.status === "completed") {
-    sheet = validateTestSheet(full?.trade || "", raw);
+    sheet = validateTestSheet(job.trade, raw);
     if (sheet.error) return c.json({ error: sheet.error }, 400);
   }
   if (photo && (!c.env.UPLOADS || !["image/jpeg", "image/png", "image/webp"].includes(photo.type) || photo.size > 5 * 1024 * 1024)) {
     return c.json({ error: photo && !c.env.UPLOADS ? "Photo storage is not connected yet." : "Photos must be JPG, PNG or WebP, and under 5 MB." }, photo && !c.env.UPLOADS ? 503 : 400);
   }
   const now = nowSeconds();
+  let failedSheetId: string | null = null;
   if (sheet && !sheet.error) {
     const existing = await c.env.DB.prepare("SELECT id FROM job_test_sheets WHERE job_id = ?").bind(job.id).first();
     if (!existing) {
+      const sheetId = crypto.randomUUID();
       await c.env.DB.prepare(
         `INSERT INTO job_test_sheets (id, job_id, trade, readings_json, result, notes, filled_by, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(crypto.randomUUID(), job.id, full?.trade, JSON.stringify(sheet.readings), sheet.result, sheet.notes || null, user.id, now).run();
+      ).bind(sheetId, job.id, job.trade, JSON.stringify(sheet.readings), sheet.result, sheet.notes || null, user.id, now).run();
       await c.env.DB.prepare(
         "INSERT INTO audit_log (id, actor_id, action, details_json, created_at) VALUES (?, ?, 'test_sheet_recorded', ?, ?)"
-      ).bind(crypto.randomUUID(), user.id, JSON.stringify({ jobId: job.id, trade: full?.trade, result: sheet.result }), now).run();
+      ).bind(crypto.randomUUID(), user.id, JSON.stringify({ jobId: job.id, trade: job.trade, result: sheet.result }), now).run();
+      if (sheet.result === "fail") failedSheetId = sheetId;
     }
   }
   const note = parsed.data.note || statusNote(parsed.data.status);
@@ -204,6 +210,20 @@ technician.post("/jobs/:id/progress", async (c) => {
   await c.env.DB.prepare(
     "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).bind(crypto.randomUUID(), job.id, user.id, parsed.data.status, note, now).run();
+  if (failedSheetId && sheet && sheet.readings) {
+    try {
+      await createReturnVisit(c.env, {
+        sheetId: failedSheetId,
+        original: { id: job.id, clientId: job.client_id, trade: job.trade, address: job.address, lat: job.lat, lng: job.lng },
+        readings: sheet.readings,
+        notes: sheet.notes ?? "",
+        actorId: user.id,
+        now,
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  }
   if (photo && c.env.UPLOADS) {
     const photoId = crypto.randomUUID();
     await c.env.UPLOADS.put(`jobs/${job.id}/${photoId}`, await photo.arrayBuffer(), {
