@@ -3,6 +3,7 @@ import { api } from "./api";
 import { expireOffers } from "./dispatch-run";
 import { isCrossSite, needsOriginCheck, withoutTrailingSlash } from "./http-guards.mjs";
 import { licenceCheck } from "./licence-check";
+import { checkStuckJobs } from "./stuck-run";
 import { portal } from "./portal";
 import type { AppContext, Bindings } from "./types";
 
@@ -78,7 +79,7 @@ function errorPage(message: string): string {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env)]).catch((error) => {
+    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), checkStuckJobs(env)]).catch((error) => {
       console.error(error);
     }));
   },
