@@ -5,11 +5,12 @@ import { staffDetail, staffQueue } from "./join-api";
 import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
 import { daysPastDue, invoiceReference, owedBucket } from "./payments.mjs";
+import { reportsInner } from "./report-page";
 import { lookupService } from "./services.mjs";
 import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261111b";
+const ASSET = "20261111c";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -102,6 +103,20 @@ for (const role of ["client", "technician", "operator", "admin"] as const) {
     return c.html(dashboardPage(user.role, user.phone));
   });
 }
+
+portal.get("/admin/reports", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.redirect("/portal/login", 303);
+  if (user.role !== "admin" && user.role !== "operator") return c.html(forbiddenPage(user.role), 403);
+  const back = user.role === "admin" ? "/portal/admin" : "/portal/operator";
+  const inner = await reportsInner(c.env, c.req.query("range") || "today", c.req.query("snapshot") || "");
+  return c.html(page("Reports", shell(user.phone, `
+    <p class="eyebrow">Reports</p>
+    <h1>Reports</h1>
+    <p><a href="${back}">Back</a></p>
+    ${inner}
+  `)));
+});
 
 portal.get("/applications", async (c) => {
   const user = await readSession(c);
@@ -297,7 +312,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <h1>Job board</h1>
     ${await alertsPanel(c)}
     ${await moneyOwedPanel(c, "/portal/operator")}
-    <p><a href="/portal/applications">Review applications</a></p>
+    <p><a href="/portal/applications">Review applications</a> · <a href="/portal/admin/reports">Reports</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
     ${await pricingNote(c)}
     <h2>Live map</h2>
@@ -340,7 +355,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -390,9 +405,10 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
   return page("Administration", shell(user.phone, `
     <p class="eyebrow">Admin</p>
     <h1>Administration</h1>
-    <p><a href="/portal/applications">Review applications</a> · <a href="/portal/operator">Job board</a></p>
+    <p><a href="/portal/applications">Review applications</a> · <a href="/portal/operator">Job board</a> · <a href="/portal/admin/reports">Reports</a></p>
     ${await moneyOwedPanel(c, "/portal/admin")}
     <h2 id="reports">Reports</h2>
+    <p><a href="/portal/admin/reports">Open the reports page</a></p>
     <p>Paid invoices: KES ${(revenue?.n ?? 0).toLocaleString("en-KE")}. Average time to first assignment: ${escapeHtml(minutes)}.</p>
     <h3>Jobs per day, Nairobi</h3><ul>${dayRows}</ul>
     <h3>Technician performance</h3><ul>${people}</ul>
@@ -421,6 +437,15 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.payment_reminders_sms === "1" ? " checked" : ""}> Send payment reminders to clients</label>
       <p class="muted">Off until this is switched on. Texts go only between 08:00 and 19:00 Nairobi time, and they cost money.</p>
       <button class="btn btn-amber" type="submit">Save payment reminders</button>
+    </form>
+    </section>
+    <section id="digest">
+    <h2>Daily and weekly summary</h2>
+    <form method="post" action="/api/admin/digest" class="form">
+      <label class="trade-choice"><input type="checkbox" name="daily" value="1"${setting.digest_daily_sms === "1" ? " checked" : ""}> Text me the daily summary</label>
+      <label class="trade-choice"><input type="checkbox" name="weekly" value="1"${setting.digest_weekly_sms === "1" ? " checked" : ""}> Text me the weekly summary</label>
+      <p class="muted">Both are off until switched on. One text goes to each admin at 07:00 Nairobi time. Texts cost money.</p>
+      <button class="btn btn-amber" type="submit">Save summary texts</button>
     </form>
     </section>
     <h2 id="settings">Settings</h2>

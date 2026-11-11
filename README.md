@@ -169,6 +169,10 @@ Apply `migrations/0008_stuck_job_alerts.sql` before the alerts panel is used. It
 
 Apply `migrations/0009_payment_reminders.sql` after `0008`. It adds a due date, a pause flag, and the payment method on `invoices`, plus `invoice_reminders`. New invoices are due 7 days after they are issued unless an admin changes that. Client texts stay off until “Send payment reminders to clients” is switched on. There is no M-Pesa collection in this repo. Marking an invoice paid records M-Pesa, cash, or bank, and an optional M-Pesa code.
 
+## Reports
+
+Apply `migrations/0010_report_snapshots.sql` after `0009`. It adds `report_snapshots` and leaves the daily and weekly summary texts off. `/portal/admin/reports` is for admins and operators. The saved digest JSON is admin-only. The existing every-minute cron writes yesterday at 07:00 Nairobi time, and the previous Monday–Sunday on Monday at the same hour.
+
 Probation length is the admin setting `probation_completed_jobs` on the Applications page. Leave it blank until Deng sets it. While it is blank, a technician on probation only receives standard-urgency jobs and does not leave probation automatically.
 
 Uploaded ID images, the onboarding selfie, and certificates are stored under `applications/` and are served only to the applicant or an admin/operator through `/api/join/documents/:id`. They are not public, not written to logs, and not shown on client job pages.
