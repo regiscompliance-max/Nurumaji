@@ -4,6 +4,7 @@ import { expireOffers } from "./dispatch-run";
 import { isCrossSite, needsOriginCheck, withoutTrailingSlash } from "./http-guards.mjs";
 import { complianceCheck } from "./compliance-run";
 import { nightlyBackup } from "./backup-run";
+import { repeatFollowUps } from "./repeat-run";
 import { healthCheck } from "./health-run";
 import { licenceCheck } from "./licence-check";
 import { checkRatingInvites } from "./rating-run";
@@ -93,7 +94,7 @@ function errorPage(message: string): string {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), complianceCheck(env), healthCheck(env), nightlyBackup(env), checkStuckJobs(env), checkPaymentReminders(env), writeDigests(env), checkRatingInvites(env)]).catch((error) => {
+    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), complianceCheck(env), healthCheck(env), nightlyBackup(env), repeatFollowUps(env), checkStuckJobs(env), checkPaymentReminders(env), writeDigests(env), checkRatingInvites(env)]).catch((error) => {
       console.error(error);
     }));
   },

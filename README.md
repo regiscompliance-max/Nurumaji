@@ -177,6 +177,10 @@ Apply `migrations/0010_report_snapshots.sql` after `0009`. It adds `report_snaps
 
 Apply `migrations/0011_failed_test_followups.sql` after `0010`. It adds `job_followups`. A failed test sheet still completes the job, then books one return visit. The reports page already counts failed test sheets.
 
+## Repeat visits
+
+Apply `migrations/0016_repeat_followups.sql` after `0015`. An electrical job is due for a safety check 12 months after it is completed. A plumbing job that mentions a water heater or geyser is due for servicing after 12 months. Both intervals are admin settings. **Text clients when a visit is due again** defaults to off. Clients can opt out. The text says the visit is with our licensed partner.
+
 ## Nightly backups
 
 Apply `migrations/0015_backups.sql` after `0014`. At 02:00 Nairobi time the cron writes `backups/YYYY-MM-DD.json` in the existing `nurumaji-uploads` bucket and deletes copies older than 30 days. The file omits `otp_codes`, `sessions`, `invites`, and `rating_invites`.

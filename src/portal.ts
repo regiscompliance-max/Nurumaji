@@ -99,7 +99,7 @@ for (const role of ["client", "technician", "operator", "admin"] as const) {
     const user = await readSession(c);
     if (!user) return c.redirect("/portal/login", 303);
     if (user.role !== role && !(role === "operator" && user.role === "admin")) return c.html(forbiddenPage(user.role), 403);
-    if (role === "client") return c.html(clientPage(user.phone, await loadClientJobs(c, user.id)));
+    if (role === "client") return c.html(await clientPage(c.env, user.phone, await loadClientJobs(c, user.id)));
     if (role === "technician") return c.html(await technicianDashboard(c, user));
     if (role === "operator") return c.html(await operatorDashboard(c, user));
     if (role === "admin") return c.html(await adminDashboard(c, user));
@@ -317,6 +317,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <h1>Job board</h1>
     ${await alertsPanel(c)}
     ${await documentHolds(c)}
+    ${await dueFollowUps(c)}
     ${await moneyOwedPanel(c, "/portal/operator")}
     <p><a href="/portal/applications">Review applications</a> · <a href="/portal/admin/reports">Reports</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
@@ -361,7 +362,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -456,6 +457,16 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
     </section>
     ${await healthPanel(c, setting)}
     ${await backupPanel(c)}
+    <section id="repeat-followups">
+    <h2>Repeat visits</h2>
+    <form method="post" action="/api/admin/repeat" class="form">
+      <div class="field"><label for="electrical-months">Electrical check, months</label><input id="electrical-months" name="electricalMonths" inputmode="numeric" required value="${escapeHtml(setting.repeat_electrical_months || "12")}"></div>
+      <div class="field"><label for="heater-months">Water heater service, months</label><input id="heater-months" name="heaterMonths" inputmode="numeric" required value="${escapeHtml(setting.repeat_heater_months || "12")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.repeat_sms === "1" ? " checked" : ""}> Text clients when a visit is due again</label>
+      <p class="muted">Off until this is switched on. A client can opt out. Texts cost money. No price is included.</p>
+      <button class="btn btn-line-ink" type="submit">Save repeat visits</button>
+    </form>
+    </section>
     <section id="documents">
     <h2>Technician documents</h2>
     <form method="post" action="/api/admin/documents" class="form">
@@ -689,6 +700,40 @@ async function ownDocuments(c: { env: AppContext["Bindings"] }, userId: string):
     <p class="muted">These dates stay private to you, operators, and admins.</p></section>`;
 }
 
+async function dueFollowUps(c: { env: AppContext["Bindings"] }): Promise<string> {
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT followup_reminders.id, followup_reminders.kind, followup_reminders.due_on, jobs.trade, jobs.address, users.name
+       FROM followup_reminders
+       JOIN jobs ON jobs.id = followup_reminders.job_id
+       JOIN users ON users.id = followup_reminders.client_id
+       WHERE followup_reminders.status = 'due'
+       ORDER BY followup_reminders.due_on
+       LIMIT 40`
+    ).all<{ id: string; kind: string; due_on: string; trade: string; address: string | null; name: string | null }>();
+    const cards = (rows.results ?? []).map((row) => {
+      const label = row.kind === "water_heater" ? "Water heater service" : "Electrical safety check";
+      const buttons = ["contacted", "booked", "dismissed"].map((status) =>
+        `<form method="post" action="/api/operator/followups/${row.id}"><input type="hidden" name="status" value="${status}"><button class="btn btn-line-ink" type="submit">${status[0].toUpperCase()}${status.slice(1)}</button></form>`
+      ).join("");
+      return `<article class="alert-card"><h3>${label}</h3><p>${escapeHtml(row.name || "Client")}${row.address ? ` · ${escapeHtml(row.address)}` : ""} · due ${escapeHtml(row.due_on)}</p><div class="report-nav">${buttons}</div></article>`;
+    }).join("");
+    return `<section id="due-followups"><h2>Due for follow-up</h2>${cards || `<p class="muted">Nothing is due.</p>`}</section>`;
+  } catch {
+    return "";
+  }
+}
+
+async function followUpOptOut(env: AppContext["Bindings"], phone: string): Promise<string> {
+  try {
+    const row = await env.DB.prepare("SELECT followup_opt_out FROM users WHERE phone = ?").bind(phone).first<{ followup_opt_out: number }>();
+    const checked = row?.followup_opt_out === 1 ? " checked" : "";
+    return `<form method="post" action="/api/jobs/followup" class="form"><label class="trade-choice"><input type="checkbox" name="optOut" value="1"${checked}> Do not text me about a later visit</label><button class="btn btn-line-ink" type="submit">Save</button></form>`;
+  } catch {
+    return "";
+  }
+}
+
 async function documentHolds(c: { env: AppContext["Bindings"] }): Promise<string> {
   try {
     const holds = await c.env.DB.prepare(
@@ -860,7 +905,7 @@ function bookingPage(phone: string, serviceKey: string, urgency: string): string
   `), true);
 }
 
-function clientPage(phone: string, groups: Awaited<ReturnType<typeof loadClientJobs>>): string {
+async function clientPage(env: AppContext["Bindings"], phone: string, groups: Awaited<ReturnType<typeof loadClientJobs>>): Promise<string> {
   const items = groups.length
     ? groups.map((group) => jobBlock(group, true)).join("")
     : `<div class="portal-empty"><h2>Nothing here yet</h2><p>Nothing is booked yet. Request a visit and it will show up here.</p></div>`;
@@ -868,6 +913,7 @@ function clientPage(phone: string, groups: Awaited<ReturnType<typeof loadClientJ
     <p class="eyebrow">Client</p>
     <h1>Your jobs</h1>
     <p><a class="btn btn-amber" href="/portal/book">Request a visit</a></p>
+    ${await followUpOptOut(env, phone)}
     <div class="job-stack">${items}</div>
   `));
 }

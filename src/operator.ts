@@ -47,6 +47,18 @@ operatorApi.get("/map", async (c) => {
   });
 });
 
+operatorApi.post("/followups/:id", async (c) => {
+  const body = await readAny(c);
+  const status = String(body.status || "");
+  if (!["contacted", "booked", "dismissed"].includes(status)) return c.json({ error: "Choose contacted, booked, or dismissed." }, 400);
+  const result = await c.env.DB.prepare(
+    "UPDATE followup_reminders SET status = ? WHERE id = ? AND status = 'due'"
+  ).bind(status, c.req.param("id")).run();
+  if (!result.meta.changes) return c.json({ error: "That reminder is no longer open." }, 400);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/operator#due-followups", 303);
+  return c.json({ ok: true });
+});
+
 operatorApi.post("/alerts/:id/acknowledge", async (c) => {
   const user = c.get("user");
   const now = nowSeconds();
