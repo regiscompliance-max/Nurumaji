@@ -203,7 +203,7 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
     events: events.results ?? [],
     photos: photos.results ?? [],
     quotes: quotes.results ?? [],
-    invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null }>()).results ?? [],
+    invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at, due_at, payment_method, mpesa_code FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null; due_at: number | null; payment_method: string | null; mpesa_code: string | null }>()).results ?? [],
     rating: rating ?? null,
     testSheet: await loadTestSheet(c, jobId),
   };

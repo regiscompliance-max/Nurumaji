@@ -4,11 +4,12 @@ import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
 import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
+import { daysPastDue, invoiceReference, owedBucket } from "./payments.mjs";
 import { lookupService } from "./services.mjs";
 import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261111a";
+const ASSET = "20261111b";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -275,7 +276,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
         <div class="field"><label for="invoice-${job.id}">Invoice amount, KES</label><input id="invoice-${job.id}" name="amountKes" inputmode="numeric" required placeholder="Type the amount"></div>
         <button class="btn btn-amber" type="submit">Create invoice</button>
       </form>` : "";
-    const paidForm = job.status === "invoiced" ? `<form method="post" action="/api/operator/jobs/${job.id}/invoices/paid"><button class="btn btn-amber" type="submit">Mark payment received</button></form>` : "";
+    const paidForm = job.status === "invoiced" ? paymentForm(job.id, "/portal/operator", "card") : "";
     cards.push(`<article class="portal-empty job-card" id="job-${job.id}">
       <p class="eyebrow">${job.operator_flag === 1 ? "Flagged" : escapeHtml(statusLabel(job.status))}</p>
       <h2>${escapeHtml(titleCase(job.trade))} · ${escapeHtml(job.urgency)}</h2>
@@ -295,6 +296,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <p class="eyebrow">Operator</p>
     <h1>Job board</h1>
     ${await alertsPanel(c)}
+    ${await moneyOwedPanel(c, "/portal/operator")}
     <p><a href="/portal/applications">Review applications</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
     ${await pricingNote(c)}
@@ -338,7 +340,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -389,6 +391,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
     <p class="eyebrow">Admin</p>
     <h1>Administration</h1>
     <p><a href="/portal/applications">Review applications</a> · <a href="/portal/operator">Job board</a></p>
+    ${await moneyOwedPanel(c, "/portal/admin")}
     <h2 id="reports">Reports</h2>
     <p>Paid invoices: KES ${(revenue?.n ?? 0).toLocaleString("en-KE")}. Average time to first assignment: ${escapeHtml(minutes)}.</p>
     <h3>Jobs per day, Nairobi</h3><ul>${dayRows}</ul>
@@ -409,6 +412,17 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <button class="btn btn-amber" type="submit">Save alert settings</button>
     </form>
     </section>
+    <section id="payment-reminders">
+    <h2>Payment reminders</h2>
+    <form method="post" action="/api/admin/payment-reminders" class="form">
+      <div class="field"><label for="due-days">Invoice due after, days</label><input id="due-days" name="dueDays" inputmode="numeric" required value="${escapeHtml(setting.invoice_due_days || "7")}"></div>
+      <div class="field"><label for="reminder-offsets">Reminder days after the due date</label><input id="reminder-offsets" name="offsets" required value="${escapeHtml(setting.payment_reminder_offsets || "0,3,7")}"></div>
+      <p class="muted">0 is the due date. Then 3 and 7 mean three and seven days later. Commas between the numbers.</p>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.payment_reminders_sms === "1" ? " checked" : ""}> Send payment reminders to clients</label>
+      <p class="muted">Off until this is switched on. Texts go only between 08:00 and 19:00 Nairobi time, and they cost money.</p>
+      <button class="btn btn-amber" type="submit">Save payment reminders</button>
+    </form>
+    </section>
     <h2 id="settings">Settings</h2>
     <form method="post" action="/api/admin/settings" class="form">
       <div class="field"><label for="offer-timeout">Offer timeout, seconds</label><input id="offer-timeout" name="offerTimeoutSeconds" inputmode="numeric" required value="${escapeHtml(setting.offer_timeout_seconds || "600")}"></div>
@@ -419,6 +433,77 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
     <h2>Role changes and reassignments</h2>
     <ul>${auditRows}</ul>
   `));
+}
+
+function paymentForm(jobId: string, back = "/portal/operator", prefix = "pay"): string {
+  return `<form method="post" action="/api/operator/jobs/${jobId}/invoices/paid" class="form">
+    <input type="hidden" name="next" value="${back}">
+    <div class="field"><label for="method-${prefix}-${jobId}">How it was paid</label><select id="method-${prefix}-${jobId}" name="method" required><option value="">Choose</option><option value="mpesa">M-Pesa</option><option value="cash">Cash</option><option value="bank">Bank</option></select></div>
+    <div class="field"><label for="code-${prefix}-${jobId}">M-Pesa code, if you have one</label><input id="code-${prefix}-${jobId}" name="mpesaCode" maxlength="20" autocapitalize="characters"></div>
+    <button class="btn btn-amber" type="submit">Mark payment received</button>
+  </form>`;
+}
+
+function methodLabel(method: string): string {
+  if (method === "mpesa") return "M-Pesa";
+  if (method === "cash") return "Cash";
+  if (method === "bank") return "Bank";
+  return method;
+}
+
+async function moneyOwedPanel(c: { env: AppContext["Bindings"] }, back: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT invoices.id, invoices.job_id, invoices.amount_kes, invoices.due_at, invoices.reminders_paused,
+              users.name AS client_name,
+              (SELECT COUNT(*) FROM invoice_reminders WHERE invoice_id = invoices.id) AS reminders_sent
+       FROM invoices
+       JOIN jobs ON jobs.id = invoices.job_id
+       JOIN users ON users.id = jobs.client_id
+       WHERE invoices.status = 'unpaid'
+       ORDER BY invoices.due_at`
+    ).all<{ id: string; job_id: string; amount_kes: number; due_at: number | null; reminders_paused: number; client_name: string | null; reminders_sent: number }>();
+    const list = rows.results ?? [];
+    const buckets = { "0-7": 0, "8-30": 0, "30+": 0 };
+    let outstanding = 0;
+    for (const row of list) {
+      outstanding += row.amount_kes;
+      if (row.due_at == null) continue;
+      const bucket = owedBucket(daysPastDue(row.due_at, now));
+      if (bucket) buckets[bucket] += row.amount_kes;
+    }
+    const money = (amount: number) => `KES ${amount.toLocaleString("en-KE")}`;
+    const cards = list.map((row) => {
+      const past = row.due_at == null ? null : daysPastDue(row.due_at, now);
+      const age = past == null ? "Due date not set" : past < 0 ? `Due in ${-past} ${-past === 1 ? "day" : "days"}` : past === 0 ? "Due today" : `${past} ${past === 1 ? "day" : "days"} overdue`;
+      const paused = row.reminders_paused === 1;
+      const sent = Number(row.reminders_sent) || 0;
+      return `<article class="money-card">
+        <h3>${escapeHtml(row.client_name || "Client")} · ${money(row.amount_kes)}</h3>
+        <p>Invoice ${escapeHtml(invoiceReference(row.id))} · ${escapeHtml(age)} · ${sent} reminder${sent === 1 ? "" : "s"} sent${paused ? " · reminders paused" : ""}</p>
+        <p><a href="/portal/jobs/${row.job_id}">Open job</a></p>
+        ${paymentForm(row.job_id, back, "owed")}
+        <form method="post" action="/api/operator/invoices/${row.id}/reminders">
+          <input type="hidden" name="next" value="${back}">
+          <input type="hidden" name="paused" value="${paused ? "0" : "1"}">
+          <button class="btn btn-line-ink" type="submit">${paused ? "Resume reminders" : "Pause reminders"}</button>
+        </form>
+      </article>`;
+    }).join("");
+    return `<section class="money-panel" id="money-owed" aria-labelledby="money-title">
+      <h2 id="money-title">Money owed</h2>
+      <ul class="money-totals">
+        <li>Outstanding ${money(outstanding)}</li>
+        <li>0–7 days ${money(buckets["0-7"])}</li>
+        <li>8–30 days ${money(buckets["8-30"])}</li>
+        <li>30+ days ${money(buckets["30+"])}</li>
+      </ul>
+      ${cards || `<p class="muted">No unpaid invoices.</p>`}
+    </section>`;
+  } catch {
+    return `<section class="money-panel" id="money-owed"><h2>Money owed</h2><p class="muted">Money owed appears here after the latest migration is applied.</p></section>`;
+  }
 }
 
 async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> {
@@ -646,7 +731,12 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
     }).join("")
     : `<p class="muted">${forClient ? "A quote will appear here when one is sent. You can approve it from this page." : "No quote has been sent."}</p>`;
   const invoices = group.invoices.length
-    ? group.invoices.map((invoice) => `<p><strong>KES ${invoice.amount_kes.toLocaleString("en-KE")}</strong> · ${escapeHtml(invoice.status)}</p>`).join("") + `<p class="muted">Payment through the site is not switched on. An operator records it when it has been received.</p>`
+    ? group.invoices.map((invoice) => {
+      const method = invoice.payment_method ? ` · ${escapeHtml(methodLabel(invoice.payment_method))}` : "";
+      const code = invoice.mpesa_code ? ` · ${escapeHtml(invoice.mpesa_code)}` : "";
+      const due = invoice.due_at ? ` · due ${escapeHtml(formatWhen(invoice.due_at))}` : "";
+      return `<p><strong>Invoice ${escapeHtml(invoiceReference(invoice.id))}</strong> · KES ${invoice.amount_kes.toLocaleString("en-KE")} · ${escapeHtml(invoice.status)}${due}${method}${code}</p>`;
+    }).join("") + `<p class="muted">Payment through the site is not switched on. An operator records it when it has been received.</p>`
     : "";
   const rating = group.rating
     ? `<p>${forClient ? "You rated" : "Rated"} this job ${group.rating.score} out of 5.</p>`

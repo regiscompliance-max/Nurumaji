@@ -160,8 +160,9 @@ operatorApi.post("/jobs/:id/invoices", async (c) => {
   if (existing) return c.json({ error: "This job already has an open invoice." }, 400);
   const now = nowSeconds();
   const id = crypto.randomUUID();
+  const dueDays = await dueDaysSetting(c.env);
   await c.env.DB.batch([
-    c.env.DB.prepare("INSERT INTO invoices (id, job_id, amount_kes, status) VALUES (?, ?, ?, 'unpaid')").bind(id, job.id, amount),
+    c.env.DB.prepare("INSERT INTO invoices (id, job_id, amount_kes, status, due_at) VALUES (?, ?, ?, 'unpaid', ?)").bind(id, job.id, amount, now + dueDays * 86400),
     c.env.DB.prepare("UPDATE jobs SET status = 'invoiced', updated_at = ? WHERE id = ?").bind(now, job.id),
     c.env.DB.prepare("INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'invoiced', ?, ?)").bind(crypto.randomUUID(), job.id, user.id, "Invoice sent", now),
   ]);
@@ -174,18 +175,51 @@ operatorApi.post("/jobs/:id/invoices", async (c) => {
 
 operatorApi.post("/jobs/:id/invoices/paid", async (c) => {
   const user = c.get("user");
+  const body = await readAny(c);
+  const payment = readPayment(body);
+  if (!payment.ok) return c.json({ error: payment.error }, 400);
   const invoice = await c.env.DB.prepare("SELECT id FROM invoices WHERE job_id = ? AND status = 'unpaid'").bind(c.req.param("id")).first<{ id: string }>();
   if (!invoice) return c.json({ error: "There is no open invoice to mark paid." }, 400);
   const now = nowSeconds();
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE invoices SET status = 'paid', paid_at = ? WHERE id = ?").bind(now, invoice.id),
+    c.env.DB.prepare("UPDATE invoices SET status = 'paid', paid_at = ?, payment_method = ?, mpesa_code = ? WHERE id = ?").bind(now, payment.method, payment.code, invoice.id),
     c.env.DB.prepare("UPDATE jobs SET status = 'paid', updated_at = ? WHERE id = ?").bind(now, c.req.param("id")),
     c.env.DB.prepare("INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'paid', ?, ?)").bind(crypto.randomUUID(), c.req.param("id"), user.id, "Payment recorded by an operator", now),
   ]);
-  await audit(c, user, "invoice_paid", { jobId: c.req.param("id"), invoiceId: invoice.id });
-  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/operator", 303);
+  await audit(c, user, "invoice_paid", { jobId: c.req.param("id"), invoiceId: invoice.id, method: payment.method, mpesaCode: payment.code || null });
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect(staffReturn(body.next), 303);
   return c.json({ ok: true });
 });
+
+operatorApi.post("/invoices/:id/reminders", async (c) => {
+  const user = c.get("user");
+  const body = await readAny(c);
+  const paused = body.paused === "1" || body.paused === "true" || body.paused === true;
+  const invoice = await c.env.DB.prepare("SELECT id, status FROM invoices WHERE id = ?").bind(c.req.param("id")).first<{ id: string; status: string }>();
+  if (!invoice || invoice.status !== "unpaid") return c.json({ error: "That invoice is not open." }, 404);
+  await c.env.DB.prepare("UPDATE invoices SET reminders_paused = ? WHERE id = ?").bind(paused ? 1 : 0, invoice.id).run();
+  await audit(c, user, "payment_reminders_paused", { invoiceId: invoice.id, paused });
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect(staffReturn(body.next), 303);
+  return c.json({ ok: true });
+});
+
+async function dueDaysSetting(env: AppContext["Bindings"]): Promise<number> {
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'invoice_due_days'").first<{ value: string }>();
+  const days = Number(row?.value);
+  return Number.isInteger(days) && days >= 1 && days <= 90 ? days : 7;
+}
+
+function staffReturn(value: unknown): string {
+  return value === "/portal/admin" ? "/portal/admin" : "/portal/operator";
+}
+
+function readPayment(body: Record<string, unknown>): { ok: true; method: string; code: string } | { ok: false; error: string } {
+  const method = String(body.method || "");
+  if (method !== "mpesa" && method !== "cash" && method !== "bank") return { ok: false, error: "Choose M-Pesa, cash, or bank." };
+  const code = String(body.mpesaCode || "").trim().toUpperCase();
+  if (code && !/^[A-Z0-9]{1,20}$/.test(code)) return { ok: false, error: "The M-Pesa code should be letters and numbers." };
+  return { ok: true, method, code: method === "mpesa" ? code : "" };
+}
 
 async function phoneFor(c: { env: AppContext["Bindings"] }, userId: string) {
   const row = await c.env.DB.prepare("SELECT phone FROM users WHERE id = ?").bind(userId).first<{ phone: string }>();
