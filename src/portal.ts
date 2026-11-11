@@ -4,13 +4,14 @@ import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
 import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
+import { jobReference } from "./followups.mjs";
 import { daysPastDue, invoiceReference, owedBucket } from "./payments.mjs";
 import { reportsInner } from "./report-page";
 import { lookupService } from "./services.mjs";
 import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261111c";
+const ASSET = "20261111d";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -531,8 +532,31 @@ async function moneyOwedPanel(c: { env: AppContext["Bindings"] }, back: string):
   }
 }
 
+function alertCard(id: string, title: string, detail: string, jobId: string): string {
+  return `<article class="alert-card">
+    <h3>${escapeHtml(title)}</h3>
+    <p>${detail}</p>
+    <p><a href="/portal/jobs/${jobId}">Open job</a></p>
+    <form method="post" action="/api/operator/alerts/${id}/acknowledge"><button class="btn btn-line-ink" type="submit">Acknowledge</button></form>
+  </article>`;
+}
+
 async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
+  const cards: string[] = [];
+  try {
+    const failed = await c.env.DB.prepare(
+      `SELECT job_followups.id, job_followups.created_at, job_followups.return_job_id, jobs.id AS job_id, jobs.trade, jobs.address
+       FROM job_followups
+       JOIN jobs ON jobs.id = job_followups.original_job_id
+       WHERE job_followups.acknowledged_at IS NULL
+       ORDER BY job_followups.created_at`
+    ).all<{ id: string; created_at: number; return_job_id: string; job_id: string; trade: string; address: string | null }>();
+    for (const row of failed.results ?? []) {
+      const place = row.address ? ` · ${escapeHtml(row.address)}` : "";
+      cards.push(alertCard(row.id, "Failed test", `${escapeHtml(titleCase(row.trade))}${place} · ${escapeHtml(formatAge(now - row.created_at))} · return visit #${escapeHtml(jobReference(row.return_job_id))}`, row.job_id));
+    }
+  } catch { /* The follow-up table is added by a later migration. */ }
   try {
     const rows = await c.env.DB.prepare(
       `SELECT job_alerts.id, job_alerts.reason, job_alerts.anchor_at, jobs.id AS job_id, jobs.trade, jobs.address
@@ -541,19 +565,17 @@ async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> 
        WHERE job_alerts.acknowledged_at IS NULL AND job_alerts.resolved_at IS NULL
        ORDER BY job_alerts.opened_at`
     ).all<{ id: string; reason: string; anchor_at: number; job_id: string; trade: string; address: string | null }>();
-    const cards = (rows.results ?? []).map((row) => `<article class="alert-card">
-      <h3>${escapeHtml(reasonLabel(row.reason))}</h3>
-      <p>${escapeHtml(titleCase(row.trade))}${row.address ? ` · ${escapeHtml(row.address)}` : ""} · ${escapeHtml(formatAge(now - row.anchor_at))}</p>
-      <p><a href="/portal/jobs/${row.job_id}">Open job</a></p>
-      <form method="post" action="/api/operator/alerts/${row.id}/acknowledge"><button class="btn btn-line-ink" type="submit">Acknowledge</button></form>
-    </article>`).join("");
-    return `<section class="alert-panel" id="alerts" aria-labelledby="alerts-title">
-      <h2 id="alerts-title">Alerts</h2>
-      ${cards || `<p class="muted">No stuck jobs.</p>`}
-    </section>`;
+    for (const row of rows.results ?? []) {
+      const place = row.address ? ` · ${escapeHtml(row.address)}` : "";
+      cards.push(alertCard(row.id, reasonLabel(row.reason), `${escapeHtml(titleCase(row.trade))}${place} · ${escapeHtml(formatAge(now - row.anchor_at))}`, row.job_id));
+    }
   } catch {
-    return `<section class="alert-panel" id="alerts"><h2>Alerts</h2><p class="muted">Alerts appear here after the latest migration is applied.</p></section>`;
+    if (!cards.length) return `<section class="alert-panel" id="alerts"><h2>Alerts</h2><p class="muted">Alerts appear here after the latest migration is applied.</p></section>`;
   }
+  return `<section class="alert-panel" id="alerts" aria-labelledby="alerts-title">
+    <h2 id="alerts-title">Alerts</h2>
+    ${cards.join("") || `<p class="muted">No alerts.</p>`}
+  </section>`;
 }
 
 async function pricingNote(c: { env: AppContext["Bindings"] }): Promise<string> {
@@ -699,6 +721,17 @@ function jobPage(phone: string, group: Awaited<ReturnType<typeof loadClientJobs>
   `));
 }
 
+function followUpLine(link: { returnJobId: string | null; originalJobId: string | null }): string {
+  const lines = [];
+  if (link.returnJobId) {
+    lines.push(`<p>A follow-up visit is booked. Return visit: <a href="/portal/jobs/${link.returnJobId}">#${escapeHtml(jobReference(link.returnJobId))}</a></p>`);
+  }
+  if (link.originalJobId) {
+    lines.push(`<p>Follow-up of <a href="/portal/jobs/${link.originalJobId}">#${escapeHtml(jobReference(link.originalJobId))}</a></p>`);
+  }
+  return lines.join("");
+}
+
 function testFields(trade: string): string {
   const note = `<p class="muted">Test sheet. Results are recorded by the technician. These fields do not set a pass mark.</p>`;
   const overall = `<div class="field"><label for="result">Overall result</label><select id="result" name="result" required><option value="">Choose</option><option value="pass">Pass</option><option value="fail">Fail</option></select></div>
@@ -776,6 +809,7 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
     ${person}
     <p class="eyebrow">${escapeHtml(statusLabel(job.status))}</p>
     <h2>${escapeHtml(titleCase(job.trade))} · ${escapeHtml(job.urgency)}</h2>
+    ${compact ? "" : followUpLine(group.followUp)}
     <p>${escapeHtml(job.description)}</p>
     ${job.address ? `<p>${escapeHtml(job.address)}</p>` : ""}
     <p class="muted">${escapeHtml(when)}</p>

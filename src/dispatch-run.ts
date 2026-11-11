@@ -1,4 +1,5 @@
 import { offerSlots, positionForDispatch, rankCandidates, shouldFlag, haversineKm } from "./dispatch.mjs";
+import { preferOriginalTechnician } from "./followups.mjs";
 import { postAfricaSms } from "./sms";
 import type { Bindings } from "./types";
 
@@ -164,7 +165,24 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
     if (await probationBlocks(env, tech.user_id, job.urgency)) continue;
     candidates.push({ userId: tech.user_id, name: tech.name, phone: tech.phone, distanceKm, ratingAvg: tech.rating_avg ?? 0 });
   }
-  return rankCandidates(candidates);
+  const ranked = rankCandidates(candidates);
+  return preferOriginalTechnician(ranked, await originalTechnicianId(env, job.id));
+}
+
+async function originalTechnicianId(env: Bindings, returnJobId: string): Promise<string | null> {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT jobs.assigned_tech_id AS tech_id
+       FROM job_followups
+       JOIN jobs ON jobs.id = job_followups.original_job_id
+       WHERE job_followups.return_job_id = ?`
+    ).bind(returnJobId).first<{ tech_id: string | null }>();
+    return row?.tech_id ?? null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("no such table")) return null;
+    throw error;
+  }
 }
 
 async function probationBlocks(env: Bindings, userId: string, urgency: string): Promise<boolean> {
