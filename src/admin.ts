@@ -52,6 +52,40 @@ adminApi.post("/settings", async (c) => {
   return c.json({ ok: true });
 });
 
+adminApi.get("/digests/latest", async (c) => {
+  let row: { period: string; period_start: number; period_end: number; label: string; stats_json: string; created_at: number } | null;
+  try {
+    row = await c.env.DB.prepare(
+      "SELECT period, period_start, period_end, label, stats_json, created_at FROM report_snapshots ORDER BY created_at DESC LIMIT 1"
+    ).first();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("no such table")) return c.json({ error: "No digest has been saved yet." }, 404);
+    throw error;
+  }
+  if (!row) return c.json({ error: "No digest has been saved yet." }, 404);
+  return c.json({
+    period: row.period,
+    label: row.label,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    savedAt: row.created_at,
+    stats: JSON.parse(row.stats_json) as unknown,
+  });
+});
+
+adminApi.post("/digest", async (c) => {
+  const body = await readAny(c);
+  const daily = body.daily === "1" || body.daily === "on" || body.daily === true;
+  const weekly = body.weekly === "1" || body.weekly === "on" || body.weekly === true;
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('digest_daily_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(daily ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('digest_weekly_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(weekly ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#digest", 303);
+  return c.json({ ok: true });
+});
+
 adminApi.post("/payment-reminders", async (c) => {
   const body = await readAny(c);
   const parsed = parsePaymentSettings({
