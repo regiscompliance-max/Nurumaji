@@ -57,7 +57,24 @@ operatorApi.post("/alerts/:id/acknowledge", async (c) => {
     const follow = await c.env.DB.prepare(
       "SELECT id, original_job_id, acknowledged_at FROM job_followups WHERE id = ?"
     ).bind(c.req.param("id")).first<{ id: string; original_job_id: string; acknowledged_at: number | null }>();
-    if (!follow) return c.json({ error: "That alert is not on the board." }, 404);
+    if (!follow) {
+      const rating = await c.env.DB.prepare(
+        "SELECT id, job_id, acknowledged_at FROM rating_alerts WHERE id = ?"
+      ).bind(c.req.param("id")).first<{ id: string; job_id: string; acknowledged_at: number | null }>();
+      if (!rating) return c.json({ error: "That alert is not on the board." }, 404);
+      const body = await readAny(c);
+      const note = String(body.resolutionNote || "").trim().slice(0, 500);
+      if (rating.acknowledged_at == null) {
+        await c.env.DB.prepare(
+          "UPDATE rating_alerts SET acknowledged_at = ?, acknowledged_by = ?, resolution_note = ? WHERE id = ? AND acknowledged_at IS NULL"
+        ).bind(now, user.id, note || null, rating.id).run();
+        await c.env.DB.prepare(
+          "INSERT INTO audit_log (id, actor_id, action, details_json, created_at) VALUES (?, ?, 'rating_alert_acknowledged', ?, ?)"
+        ).bind(crypto.randomUUID(), user.id, JSON.stringify({ alertId: rating.id, jobId: rating.job_id }), now).run();
+      }
+      if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/operator", 303);
+      return c.json({ ok: true });
+    }
     if (follow.acknowledged_at == null) {
       await c.env.DB.prepare(
         "UPDATE job_followups SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ? AND acknowledged_at IS NULL"

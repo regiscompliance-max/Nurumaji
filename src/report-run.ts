@@ -19,6 +19,7 @@ export type ReportStats = {
   quotesSent: number;
   quotesAccepted: number;
   applications: number;
+  lowRatings: number;
   bookingToAssignedSeconds: number | null;
   assignedToCompletedSeconds: number | null;
   technicians: { name: string; completed: number; rating: number | null }[];
@@ -93,6 +94,9 @@ export async function loadReport(env: Bindings, start: number, end: number): Pro
   const applications = await db.prepare(
     "SELECT COUNT(*) AS n FROM technician_applications WHERE created_at >= ? AND created_at < ?"
   ).bind(start, end).first<CountRow>();
+  const lowRatings = await db.prepare(
+    "SELECT COUNT(*) AS n FROM ratings WHERE score <= 2 AND created_at >= ? AND created_at < ?"
+  ).bind(start, end).first<CountRow>();
   const toAssigned = await db.prepare(
     `SELECT AVG(first_assigned - jobs.created_at) AS n
      FROM jobs
@@ -150,6 +154,7 @@ export async function loadReport(env: Bindings, start: number, end: number): Pro
     quotesSent: count(quotesSent),
     quotesAccepted: count(quotesAccepted),
     applications: count(applications),
+    lowRatings: count(lowRatings),
     bookingToAssignedSeconds: toAssigned?.n == null ? null : Number(toAssigned.n),
     assignedToCompletedSeconds: toCompleted?.n == null ? null : Number(toCompleted.n),
     technicians: (technicians.results ?? []).map((row) => ({
