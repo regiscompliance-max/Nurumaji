@@ -6,7 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/phone.test.mjs src/services.test.mjs src/dispatch.test.mjs src/http-guards.test.mjs src/test-sheet.test.mjs src/stuck-jobs.test.mjs src/payments.test.mjs src/reports.test.mjs src/followups.test.mjs src/ratings.test.mjs src/compliance.test.mjs src/health.test.mjs src/backup.test.mjs src/repeat.test.mjs",
+    "test": "node --test src/phone.test.mjs src/services.test.mjs src/dispatch.test.mjs src/http-guards.test.mjs src/test-sheet.test.mjs src/stuck-jobs.test.mjs src/payments.test.mjs src/reports.test.mjs src/followups.test.mjs src/ratings.test.mjs src/compliance.test.mjs src/health.test.mjs src/backup.test.mjs src/repeat.test.mjs src/sms-delivery.test.mjs",
     "db:migrate:local": "wrangler d1 migrations apply nurumaji-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply nurumaji-db --remote",
     "seed:admin": "node scripts/seed-admin.mjs"

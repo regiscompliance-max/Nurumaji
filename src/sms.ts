@@ -1,3 +1,4 @@
+import { failureLogLine, maskPhone, readSmsDelivery } from "./sms-delivery.mjs";
 import type { Bindings } from "./types";
 
 const LIVE_URL = "https://api.africastalking.com/version1/messaging";
@@ -24,18 +25,38 @@ export async function postAfricaSms(env: Bindings, phone: string, message: strin
   });
 }
 
+async function rememberFailure(env: Bindings, status: string, statusCode: number | null, phone: string): Promise<void> {
+  const now = String(Math.floor(Date.now() / 1000));
+  const code = statusCode == null ? "" : String(statusCode);
+  try {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO settings (key, value) VALUES ('sms_last_failure_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(now),
+      env.DB.prepare("INSERT INTO settings (key, value) VALUES ('sms_last_failure_status', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(status.slice(0, 80)),
+      env.DB.prepare("INSERT INTO settings (key, value) VALUES ('sms_last_failure_code', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(code),
+      env.DB.prepare("INSERT INTO settings (key, value) VALUES ('sms_last_failure_phone', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(phone),
+    ]);
+  } catch {
+    console.error("The SMS failure could not be stored.");
+  }
+}
+
+async function deliveryOf(env: Bindings, response: Response) {
+  const body = await response.text();
+  const safe = env.AT_API_KEY ? body.split(env.AT_API_KEY).join("[redacted]") : body;
+  return readSmsDelivery(response.status, safe);
+}
+
 export async function sendLoginCode(env: Bindings, phone: string, code: string): Promise<void> {
   if (env.OTP_DEV_MODE === "true") {
     console.log(`[OTP_DEV_MODE] ${phone} ${code}`);
     return;
   }
   const response = await postAfricaSms(env, phone, `Your Nuru & Maji sign-in code is ${code}. It expires in 5 minutes.`);
-  if (!response.ok) {
-    const text = await response.text();
-    const safe = env.AT_API_KEY ? text.replaceAll(env.AT_API_KEY, "[redacted]") : text;
-    console.error(`Africa's Talking login SMS failed: HTTP ${response.status} ${safe}`);
-    throw new Error("sms_failed");
-  }
+  const delivery = await deliveryOf(env, response);
+  if (delivery.ok) return;
+  console.error(failureLogLine({ ...delivery, phone }));
+  await rememberFailure(env, delivery.status, delivery.statusCode, maskPhone(phone));
+  throw new Error(delivery.httpStatus >= 200 && delivery.httpStatus < 300 ? "sms_rejected" : "sms_failed");
 }
 
 export async function sendSms(env: Bindings, phone: string, message: string): Promise<void> {
@@ -48,5 +69,8 @@ export async function sendSms(env: Bindings, phone: string, message: string): Pr
     return;
   }
   const response = await postAfricaSms(env, phone, message);
-  if (!response.ok) console.error("SMS was not accepted by Africa's Talking.");
+  const delivery = await deliveryOf(env, response);
+  if (delivery.ok) return;
+  console.error(failureLogLine({ ...delivery, phone }));
+  await rememberFailure(env, delivery.status, delivery.statusCode, maskPhone(phone));
 }

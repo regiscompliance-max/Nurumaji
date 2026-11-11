@@ -668,13 +668,29 @@ async function healthPanel(c: { env: AppContext["Bindings"] }, setting: Record<s
       status = `<ul><li>Database ${row.database_ok ? "ok" : "failed"}</li><li>Portal ${row.portal_ok ? "ok" : "failed"}</li><li>Africa's Talking balance ${balance}</li><li>${escapeHtml(row.detail)}</li></ul>`;
     }
   } catch { status = "<p class=\"muted\">Health checks appear after the latest migration is applied.</p>"; }
-  return `<section id="system-health"><h2>System health</h2>${status}
+  const smsFailure = await lastSmsFailure(c);
+  return `<section id="system-health"><h2>System health</h2>${status}${smsFailure}
     <form method="post" action="/api/admin/health" class="form">
       <div class="field"><label for="balance-min">Warn below, KES</label><input id="balance-min" name="threshold" inputmode="numeric" required value="${escapeHtml(setting.at_balance_min_kes || "50")}"></div>
       <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.health_sms === "1" ? " checked" : ""}> Text me system warnings</label>
       <p class="muted">Off until this is switched on. Checks run every few hours. Texts cost money.</p>
       <button class="btn btn-line-ink" type="submit">Save health warnings</button>
     </form></section>`;
+}
+
+async function lastSmsFailure(c: { env: AppContext["Bindings"] }): Promise<string> {
+  try {
+    const rows = await c.env.DB.prepare(
+      "SELECT key, value FROM settings WHERE key IN ('sms_last_failure_at', 'sms_last_failure_status', 'sms_last_failure_code', 'sms_last_failure_phone')"
+    ).all<{ key: string; value: string }>();
+    const values = Object.fromEntries((rows.results ?? []).map((row) => [row.key, row.value]));
+    if (!values.sms_last_failure_at) return `<p id="sms-failure">No failed text has been recorded.</p>`;
+    const when = formatWhen(Number(values.sms_last_failure_at));
+    const code = values.sms_last_failure_code ? ` (${escapeHtml(values.sms_last_failure_code)})` : "";
+    return `<p id="sms-failure">Last text failure: ${escapeHtml(when)} · ${escapeHtml(values.sms_last_failure_status || "Unknown")}${code} · ${escapeHtml(values.sms_last_failure_phone || "***")}</p>`;
+  } catch {
+    return `<p id="sms-failure">No failed text has been recorded.</p>`;
+  }
 }
 
 async function ownDocuments(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {
