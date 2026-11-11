@@ -455,6 +455,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
     </form>
     </section>
     ${await healthPanel(c, setting)}
+    ${await backupPanel(c)}
     <section id="documents">
     <h2>Technician documents</h2>
     <form method="post" action="/api/admin/documents" class="form">
@@ -626,6 +627,23 @@ async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> 
     <h2 id="alerts-title">Alerts</h2>
     ${cards.join("") || `<p class="muted">No alerts.</p>`}
   </section>`;
+}
+
+async function backupPanel(c: { env: AppContext["Bindings"] }): Promise<string> {
+  let when = "No backup yet.";
+  let status = "none";
+  let link = "";
+  try {
+    const rows = await c.env.DB.prepare(
+      "SELECT key, value FROM settings WHERE key IN ('backup_last_on', 'backup_last_status', 'backup_last_key')"
+    ).all<{ key: string; value: string }>();
+    const values = Object.fromEntries((rows.results ?? []).map((row) => [row.key, row.value]));
+    if (values.backup_last_on) when = values.backup_last_on;
+    status = values.backup_last_status || "none";
+    if (values.backup_last_key) link = `<p><a href="/api/admin/backups/latest">Download the latest backup</a></p>`;
+  } catch { /* Settings are always present. */ }
+  return `<section id="backups"><h2>Backups</h2><p>Last backup ${escapeHtml(when)} · ${escapeHtml(status)}</p>${link}
+    <p class="muted">A copy of the database tables is saved each night at 02:00 Nairobi time. Sign-in codes and session tokens are left out. Copies older than 30 days are removed.</p></section>`;
 }
 
 async function healthPanel(c: { env: AppContext["Bindings"] }, setting: Record<string, string>): Promise<string> {

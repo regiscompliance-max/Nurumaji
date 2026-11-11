@@ -75,6 +75,21 @@ adminApi.get("/digests/latest", async (c) => {
   });
 });
 
+adminApi.get("/backups/latest", async (c) => {
+  const row = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'backup_last_key'").first<{ value: string }>();
+  if (!row?.value || !c.env.UPLOADS) return c.json({ error: "No backup is stored yet." }, 404);
+  const object = await c.env.UPLOADS.get(row.value);
+  if (!object) return c.json({ error: "No backup is stored yet." }, 404);
+  const filename = row.value.split("/").pop() || "backup.json";
+  return new Response(object.body, {
+    headers: {
+      "content-type": "application/json",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "cache-control": "no-store",
+    },
+  });
+});
+
 adminApi.post("/health", async (c) => {
   const body = await readAny(c);
   const threshold = Number(body.threshold);
