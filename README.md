@@ -177,6 +177,10 @@ Apply `migrations/0010_report_snapshots.sql` after `0009`. It adds `report_snaps
 
 Apply `migrations/0011_failed_test_followups.sql` after `0010`. It adds `job_followups`. A failed test sheet still completes the job, then books one return visit. The reports page already counts failed test sheets.
 
+## Customer ratings
+
+Apply `migrations/0012_customer_ratings.sql` after `0011`. It adds `created_at` and `updated_at` on `ratings`, plus `rating_invites` and `rating_alerts`. Clients can already rate a finished job in the portal. A text asking for a rating stays off until “Ask clients for a rating by text” is switched on. A technician with no ratings is ranked as 4 out of 5, so a new technician is not placed last. Distance is still the first sort. The stored average stays 0, and the portal says “No rating yet”, until the first rating. Ratings are not shown on the public site.
+
 Probation length is the admin setting `probation_completed_jobs` on the Applications page. Leave it blank until Deng sets it. While it is blank, a technician on probation only receives standard-urgency jobs and does not leave probation automatically.
 
 Uploaded ID images, the onboarding selfie, and certificates are stored under `applications/` and are served only to the applicant or an admin/operator through `/api/join/documents/:id`. They are not public, not written to logs, and not shown on client job pages.

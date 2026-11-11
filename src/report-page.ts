@@ -53,6 +53,7 @@ export function reportMarkup(stats: ReportStats, label: string): string {
       ${stat("Quotes sent", String(stats.quotesSent))}
       ${stat("Quotes accepted", String(stats.quotesAccepted))}
       ${stat("New applications", String(stats.applications))}
+      ${stat("Low ratings", String(stats.lowRatings ?? 0))}
       ${stat("Booking to assigned", duration(stats.bookingToAssignedSeconds))}
       ${stat("Assigned to completed", duration(stats.assignedToCompletedSeconds))}
     </div>

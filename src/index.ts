@@ -3,6 +3,8 @@ import { api } from "./api";
 import { expireOffers } from "./dispatch-run";
 import { isCrossSite, needsOriginCheck, withoutTrailingSlash } from "./http-guards.mjs";
 import { licenceCheck } from "./licence-check";
+import { checkRatingInvites } from "./rating-run";
+import { ratingGet, ratingPost } from "./rating-page";
 import { writeDigests } from "./report-run";
 import { checkPaymentReminders } from "./payment-run";
 import { checkStuckJobs } from "./stuck-run";
@@ -38,6 +40,13 @@ app.use("*", async (c, next) => {
 
 app.route("/api", api);
 app.route("/portal", portal);
+app.get("/rate/:token", (c) => ratingGet(c.env, c.req.param("token")));
+app.post("/rate/:token", async (c) => {
+  const form = await c.req.formData();
+  const raw: Record<string, unknown> = {};
+  for (const [key, value] of form.entries()) if (typeof value === "string") raw[key] = value;
+  return ratingPost(c.env, c.req.param("token"), raw);
+});
 
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
@@ -81,7 +90,7 @@ function errorPage(message: string): string {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), checkStuckJobs(env), checkPaymentReminders(env), writeDigests(env)]).catch((error) => {
+    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), checkStuckJobs(env), checkPaymentReminders(env), writeDigests(env), checkRatingInvites(env)]).catch((error) => {
       console.error(error);
     }));
   },

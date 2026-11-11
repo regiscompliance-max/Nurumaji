@@ -5,13 +5,14 @@ import { staffDetail, staffQueue } from "./join-api";
 import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
 import { jobReference } from "./followups.mjs";
+import { canEditRating } from "./ratings.mjs";
 import { daysPastDue, invoiceReference, owedBucket } from "./payments.mjs";
 import { reportsInner } from "./report-page";
 import { lookupService } from "./services.mjs";
 import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261111d";
+const ASSET = "20261111e";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -222,6 +223,7 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
   return page("Your offers", shell(user.phone, `
     <p class="eyebrow">Technician</p>
     <h1>Your offers</h1>
+    ${await technicianRatings(c, user.id)}
     ${await renewalBanner(c, user.id)}
     <form class="portrait-form" method="post" action="/api/technician/photo" enctype="multipart/form-data">
       ${portrait}
@@ -356,7 +358,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -447,6 +449,15 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <label class="trade-choice"><input type="checkbox" name="weekly" value="1"${setting.digest_weekly_sms === "1" ? " checked" : ""}> Text me the weekly summary</label>
       <p class="muted">Both are off until switched on. One text goes to each admin at 07:00 Nairobi time. Texts cost money.</p>
       <button class="btn btn-amber" type="submit">Save summary texts</button>
+    </form>
+    </section>
+    <section id="rating-sms">
+    <h2>Customer ratings</h2>
+    <form method="post" action="/api/admin/rating-sms" class="form">
+      <div class="field"><label for="rating-delay">Hours after the job is completed</label><input id="rating-delay" name="delayHours" inputmode="numeric" required value="${escapeHtml(setting.rating_sms_delay_hours || "2")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.rating_sms === "1" ? " checked" : ""}> Ask clients for a rating by text</label>
+      <p class="muted">Off until this is switched on. One text per job, between 08:00 and 19:00 Nairobi time. The link expires after 14 days. Texts cost money. The rating form in the portal stays available either way.</p>
+      <button class="btn btn-amber" type="submit">Save rating texts</button>
     </form>
     </section>
     <h2 id="settings">Settings</h2>
@@ -558,6 +569,27 @@ async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> 
     }
   } catch { /* The follow-up table is added by a later migration. */ }
   try {
+    const lows = await c.env.DB.prepare(
+      `SELECT rating_alerts.id, rating_alerts.score, rating_alerts.opened_at, jobs.id AS job_id, jobs.trade, jobs.address
+       FROM rating_alerts
+       JOIN jobs ON jobs.id = rating_alerts.job_id
+       WHERE rating_alerts.acknowledged_at IS NULL AND rating_alerts.score <= 2
+       ORDER BY rating_alerts.opened_at`
+    ).all<{ id: string; score: number; opened_at: number; job_id: string; trade: string; address: string | null }>();
+    for (const row of lows.results ?? []) {
+      const place = row.address ? ` · ${escapeHtml(row.address)}` : "";
+      cards.push(`<article class="alert-card">
+        <h3>Low rating</h3>
+        <p>${escapeHtml(titleCase(row.trade))}${place} · ${row.score} out of 5 · ${escapeHtml(formatAge(now - row.opened_at))}</p>
+        <p><a href="/portal/jobs/${row.job_id}">Open job</a></p>
+        <form method="post" action="/api/operator/alerts/${row.id}/acknowledge" class="form">
+          <div class="field"><label for="note-${row.id}">Resolution note, optional</label><textarea id="note-${row.id}" name="resolutionNote" maxlength="500"></textarea></div>
+          <button class="btn btn-line-ink" type="submit">Acknowledge</button>
+        </form>
+      </article>`);
+    }
+  } catch { /* Rating alerts arrive with a later migration. */ }
+  try {
     const rows = await c.env.DB.prepare(
       `SELECT job_alerts.id, job_alerts.reason, job_alerts.anchor_at, jobs.id AS job_id, jobs.trade, jobs.address
        FROM job_alerts
@@ -576,6 +608,26 @@ async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> 
     <h2 id="alerts-title">Alerts</h2>
     ${cards.join("") || `<p class="muted">No alerts.</p>`}
   </section>`;
+}
+
+async function technicianRatings(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {
+  try {
+    const profile = await c.env.DB.prepare(
+      "SELECT rating_avg, rating_count FROM technician_profiles WHERE user_id = ?"
+    ).bind(userId).first<{ rating_avg: number; rating_count: number }>();
+    const rows = await c.env.DB.prepare(
+      `SELECT ratings.score, ratings.comment, jobs.trade
+       FROM ratings JOIN jobs ON jobs.id = ratings.job_id
+       WHERE ratings.tech_id = ?
+       ORDER BY ratings.created_at DESC LIMIT 10`
+    ).bind(userId).all<{ score: number; comment: string | null; trade: string }>();
+    const count = Number(profile?.rating_count ?? 0) || 0;
+    const average = count > 0 ? `${Number(profile?.rating_avg ?? 0).toFixed(1)} out of 5 from ${count}` : "No rating yet";
+    const comments = (rows.results ?? []).map((row) => `<li>${row.score} out of 5 · ${escapeHtml(titleCase(row.trade))}${row.comment ? ` · ${escapeHtml(row.comment)}` : ""}</li>`).join("");
+    return `<section><h2>Your ratings</h2><p>${escapeHtml(average)}</p>${comments ? `<ul>${comments}</ul>` : ""}</section>`;
+  } catch {
+    return "";
+  }
 }
 
 async function pricingNote(c: { env: AppContext["Bindings"] }): Promise<string> {
@@ -721,6 +773,31 @@ function jobPage(phone: string, group: Awaited<ReturnType<typeof loadClientJobs>
   `));
 }
 
+function ratingBlock(
+  job: { id: string; status: string },
+  rating: { score: number; comment: string | null; created_at: number | null } | null,
+  forClient: boolean,
+  resolutionNote: string | null,
+): string {
+  const done = ["completed", "invoiced", "paid"].includes(job.status);
+  const comment = rating?.comment ? `<p>${escapeHtml(rating.comment)}</p>` : "";
+  const note = !forClient && resolutionNote ? `<p>Resolution: ${escapeHtml(resolutionNote)}</p>` : "";
+  const now = Math.floor(Date.now() / 1000);
+  if (forClient && done && (!rating || canEditRating(rating.created_at, now))) {
+    const options = [5, 4, 3, 2, 1].map((score) =>
+      `<label class="trade-choice"><input type="radio" name="score" value="${score}"${rating?.score === score ? " checked" : ""} required> ${score}</label>`
+    ).join("");
+    return `<form method="post" action="/api/jobs/${job.id}/rating" class="form">
+      <fieldset class="test-sheet"><legend>Stars, from 1 to 5</legend>${options}</fieldset>
+      <div class="field"><label for="comment-${job.id}">Comment, optional</label><textarea id="comment-${job.id}" name="comment" maxlength="500">${escapeHtml(rating?.comment || "")}</textarea></div>
+      <button class="btn btn-amber" type="submit">${rating ? "Update rating" : "Save rating"}</button>
+      ${rating ? `<p class="muted">You can change this for 24 hours.</p>` : ""}
+    </form>`;
+  }
+  if (rating) return `<p>${forClient ? "You rated" : "Rated"} this job ${rating.score} out of 5.</p>${comment}${note}`;
+  return `<p class="muted">${forClient ? "You can rate the job after the work is completed." : "No rating yet."}</p>${note}`;
+}
+
 function followUpLine(link: { returnJobId: string | null; originalJobId: string | null }): string {
   const lines = [];
   if (link.returnJobId) {
@@ -796,11 +873,7 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
       return `<p><strong>Invoice ${escapeHtml(invoiceReference(invoice.id))}</strong> · KES ${invoice.amount_kes.toLocaleString("en-KE")} · ${escapeHtml(invoice.status)}${due}${method}${code}</p>`;
     }).join("") + `<p class="muted">Payment through the site is not switched on. An operator records it when it has been received.</p>`
     : "";
-  const rating = group.rating
-    ? `<p>${forClient ? "You rated" : "Rated"} this job ${group.rating.score} out of 5.</p>`
-    : forClient && job.status === "completed"
-      ? `<form method="post" action="/api/jobs/${job.id}/rating"><div class="field"><label for="score">Rating</label><select id="score" name="score"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></div><div class="field"><label for="comment">Comment, optional</label><textarea id="comment" name="comment" maxlength="500"></textarea></div><button class="btn btn-amber" type="submit">Save rating</button></form>`
-      : `<p class="muted">${forClient ? "You can rate the job after the work is completed." : "No rating yet."}</p>`;
+  const rating = ratingBlock(job, group.rating, forClient, group.resolutionNote);
   const timeline = `<ol class="timeline">${group.events.map((event) =>
     `<li><time datetime="${new Date(event.created_at * 1000).toISOString()}">${escapeHtml(formatWhen(event.created_at))}</time><strong>${escapeHtml(eventLabel(event.type))}</strong>${event.note && event.note !== eventLabel(event.type) ? `<span>${escapeHtml(event.note)}</span>` : ""}</li>`
   ).join("")}</ol>`;

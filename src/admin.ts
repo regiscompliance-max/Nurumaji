@@ -74,6 +74,19 @@ adminApi.get("/digests/latest", async (c) => {
   });
 });
 
+adminApi.post("/rating-sms", async (c) => {
+  const body = await readAny(c);
+  const delay = Number(body.delayHours);
+  if (!Number.isInteger(delay) || delay < 1 || delay > 72) return c.json({ error: "The delay must be a whole number of hours from 1 to 72." }, 400);
+  const sms = body.sms === "1" || body.sms === "on" || body.sms === true;
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('rating_sms_delay_hours', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(delay)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('rating_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(sms ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#rating-sms", 303);
+  return c.json({ ok: true });
+});
+
 adminApi.post("/digest", async (c) => {
   const body = await readAny(c);
   const daily = body.daily === "1" || body.daily === "on" || body.daily === true;

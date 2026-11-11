@@ -1,5 +1,6 @@
 import { offerSlots, positionForDispatch, rankCandidates, shouldFlag, haversineKm } from "./dispatch.mjs";
 import { preferOriginalTechnician } from "./followups.mjs";
+import { rankingScore } from "./ratings.mjs";
 import { postAfricaSms } from "./sms";
 import type { Bindings } from "./types";
 
@@ -31,6 +32,7 @@ type TechRow = {
   on_duty: number;
   approved: number;
   rating_avg: number;
+  rating_count: number;
 };
 
 export async function dispatchJob(env: Bindings, jobId: string): Promise<void> {
@@ -129,7 +131,7 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
     `SELECT users.id AS user_id, users.phone, users.name, technician_profiles.trades, technician_profiles.base_lat,
             technician_profiles.base_lng, technician_profiles.live_lat, technician_profiles.live_lng,
             technician_profiles.live_updated_at, technician_profiles.radius_km, technician_profiles.on_duty,
-            technician_profiles.approved, technician_profiles.rating_avg
+            technician_profiles.approved, technician_profiles.rating_avg, technician_profiles.rating_count
      FROM technician_profiles
      JOIN users ON users.id = technician_profiles.user_id
      WHERE users.role = 'technician' AND users.status = 'active'
@@ -163,7 +165,7 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
     const distanceKm = haversineKm(job.lat as number, job.lng as number, spot.lat, spot.lng);
     if (distanceKm > tech.radius_km) continue;
     if (await probationBlocks(env, tech.user_id, job.urgency)) continue;
-    candidates.push({ userId: tech.user_id, name: tech.name, phone: tech.phone, distanceKm, ratingAvg: tech.rating_avg ?? 0 });
+    candidates.push({ userId: tech.user_id, name: tech.name, phone: tech.phone, distanceKm, ratingAvg: rankingScore(tech.rating_avg, tech.rating_count) });
   }
   const ranked = rankCandidates(candidates);
   return preferOriginalTechnician(ranked, await originalTechnicianId(env, job.id));

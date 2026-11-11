@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
+import { saveJobRating } from "./rating-run";
 import { dispatchJob } from "./dispatch-run";
 import { readSession } from "./session";
 import { lookupService } from "./services.mjs";
@@ -35,7 +36,7 @@ type JobRow = {
 type EventRow = { id: string; type: string; note: string | null; created_at: number };
 type PhotoRow = { id: string; created_at: number };
 type QuoteRow = { id: string; amount_kes: number; status: string; created_at: number };
-type RatingRow = { score: number; comment: string | null };
+type RatingRow = { score: number; comment: string | null; created_at: number | null };
 
 export const jobs = new Hono<AppContext>({ strict: false });
 
@@ -144,23 +145,16 @@ jobs.post("/:id/rating", async (c) => {
   if (!user) return c.json({ error: "Sign in required." }, 401);
   const job = await ownJob(c, user, c.req.param("id"));
   if (!job) return c.json({ error: "Job not found." }, 404);
-  if (job.status !== "completed") return c.json({ error: "You can rate the job after the work is completed." }, 400);
-  const existing = await c.env.DB.prepare("SELECT id FROM ratings WHERE job_id = ?").bind(job.id).first();
-  if (existing) return c.json({ error: "This job already has a rating." }, 400);
-  const parsed = z.object({
-    score: z.coerce.number().int().min(1).max(5),
-    comment: z.string().trim().max(500).optional(),
-  }).safeParse(await readBody(c));
-  if (!parsed.success) return c.json({ error: "Choose a rating from 1 to 5." }, 400);
-  const now = nowSeconds();
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      "INSERT INTO ratings (id, job_id, client_id, tech_id, score, comment) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(crypto.randomUUID(), job.id, user.id, job.assigned_tech_id || user.id, parsed.data.score, parsed.data.comment || null),
-    c.env.DB.prepare(
-      "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'rated', ?, ?)"
-    ).bind(crypto.randomUUID(), job.id, user.id, `Rated ${parsed.data.score} out of 5`, now),
-  ]);
+  const raw = await readBody(c);
+  const body = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const saved = await saveJobRating(c.env, {
+    jobId: job.id,
+    clientId: user.id,
+    score: Number(body.score),
+    comment: String(body.comment || ""),
+    now: nowSeconds(),
+  });
+  if (saved.error) return c.json({ error: saved.error }, saved.error === "Job not found." ? 404 : 400);
   if (wantsHtml(c)) return c.redirect(`/portal/jobs/${job.id}`, 303);
   return c.json({ ok: true });
 });
@@ -197,7 +191,7 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
     c.env.DB.prepare("SELECT id, type, note, created_at FROM job_events WHERE job_id = ? ORDER BY created_at ASC").bind(jobId).all<EventRow>(),
     c.env.DB.prepare("SELECT id, created_at FROM job_photos WHERE job_id = ? ORDER BY created_at ASC").bind(jobId).all<PhotoRow>(),
     c.env.DB.prepare("SELECT id, amount_kes, status, created_at FROM quotes WHERE job_id = ? ORDER BY created_at ASC").bind(jobId).all<QuoteRow>(),
-    c.env.DB.prepare("SELECT score, comment FROM ratings WHERE job_id = ?").bind(jobId).first<RatingRow>(),
+    c.env.DB.prepare("SELECT score, comment, created_at FROM ratings WHERE job_id = ?").bind(jobId).first<RatingRow>(),
   ]);
   return {
     events: events.results ?? [],
@@ -205,9 +199,21 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
     quotes: quotes.results ?? [],
     invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at, due_at, payment_method, mpesa_code FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null; due_at: number | null; payment_method: string | null; mpesa_code: string | null }>()).results ?? [],
     rating: rating ?? null,
+    resolutionNote: await loadResolutionNote(c, jobId),
     testSheet: await loadTestSheet(c, jobId),
     followUp: await loadFollowUp(c, jobId),
   };
+}
+
+async function loadResolutionNote(c: { env: AppContext["Bindings"] }, jobId: string) {
+  try {
+    const row = await c.env.DB.prepare(
+      "SELECT resolution_note FROM rating_alerts WHERE job_id = ?"
+    ).bind(jobId).first<{ resolution_note: string | null }>();
+    return row?.resolution_note ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function loadFollowUp(c: { env: AppContext["Bindings"] }, jobId: string) {
