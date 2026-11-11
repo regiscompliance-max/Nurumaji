@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
+import { parseStuckSettings } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
 const ROLES = ["client", "technician", "operator", "admin"] as const;
@@ -47,6 +48,25 @@ adminApi.post("/settings", async (c) => {
     c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('pricing_note', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(pricing),
   ]);
   if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/stuck-alerts", async (c) => {
+  const body = await readAny(c);
+  const parsed = parseStuckSettings({
+    awaitingMinutes: body.awaitingMinutes,
+    notStartedHours: body.notStartedHours,
+    inProgressHours: body.inProgressHours,
+    sms: body.sms,
+  });
+  if (parsed.error) return c.json({ error: parsed.error }, 400);
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('stuck_awaiting_minutes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.awaitingMinutes)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('stuck_not_started_hours', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.notStartedHours)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('stuck_in_progress_hours', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.inProgressHours)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('stuck_alert_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.sms ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#stuck-alerts", 303);
   return c.json({ ok: true });
 });
 

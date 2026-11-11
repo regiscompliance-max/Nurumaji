@@ -5,9 +5,10 @@ import { staffDetail, staffQueue } from "./join-api";
 import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
 import { lookupService } from "./services.mjs";
+import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261110d";
+const ASSET = "20261111a";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -293,6 +294,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
   return page("Dispatch", shell(user.phone, `
     <p class="eyebrow">Operator</p>
     <h1>Job board</h1>
+    ${await alertsPanel(c)}
     <p><a href="/portal/applications">Review applications</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
     ${await pricingNote(c)}
@@ -336,7 +338,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -396,6 +398,17 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
     <h2 id="technicians">Technicians</h2>
     <p class="muted">Full ID numbers and certificate files stay on the application. This list shows the last two digits only.</p>
     <div class="job-stack">${techRows}</div>
+    <section id="stuck-alerts">
+    <h2>Stuck-job alerts</h2>
+    <form method="post" action="/api/admin/stuck-alerts" class="form">
+      <div class="field"><label for="awaiting-minutes">Waiting for a technician, minutes</label><input id="awaiting-minutes" name="awaitingMinutes" inputmode="numeric" required value="${escapeHtml(setting.stuck_awaiting_minutes || "30")}"></div>
+      <div class="field"><label for="not-started-hours">Accepted but not started, hours</label><input id="not-started-hours" name="notStartedHours" inputmode="numeric" required value="${escapeHtml(setting.stuck_not_started_hours || "4")}"></div>
+      <div class="field"><label for="in-progress-hours">In progress, hours</label><input id="in-progress-hours" name="inProgressHours" inputmode="numeric" required value="${escapeHtml(setting.stuck_in_progress_hours || "8")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.stuck_alert_sms === "1" ? " checked" : ""}> Text me stuck-job alerts</label>
+      <p class="muted">Off until this is switched on. One text per check goes to each operator and admin. Texts cost money.</p>
+      <button class="btn btn-amber" type="submit">Save alert settings</button>
+    </form>
+    </section>
     <h2 id="settings">Settings</h2>
     <form method="post" action="/api/admin/settings" class="form">
       <div class="field"><label for="offer-timeout">Offer timeout, seconds</label><input id="offer-timeout" name="offerTimeoutSeconds" inputmode="numeric" required value="${escapeHtml(setting.offer_timeout_seconds || "600")}"></div>
@@ -406,6 +419,31 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
     <h2>Role changes and reassignments</h2>
     <ul>${auditRows}</ul>
   `));
+}
+
+async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT job_alerts.id, job_alerts.reason, job_alerts.anchor_at, jobs.id AS job_id, jobs.trade, jobs.address
+       FROM job_alerts
+       JOIN jobs ON jobs.id = job_alerts.job_id
+       WHERE job_alerts.acknowledged_at IS NULL AND job_alerts.resolved_at IS NULL
+       ORDER BY job_alerts.opened_at`
+    ).all<{ id: string; reason: string; anchor_at: number; job_id: string; trade: string; address: string | null }>();
+    const cards = (rows.results ?? []).map((row) => `<article class="alert-card">
+      <h3>${escapeHtml(reasonLabel(row.reason))}</h3>
+      <p>${escapeHtml(titleCase(row.trade))}${row.address ? ` · ${escapeHtml(row.address)}` : ""} · ${escapeHtml(formatAge(now - row.anchor_at))}</p>
+      <p><a href="/portal/jobs/${row.job_id}">Open job</a></p>
+      <form method="post" action="/api/operator/alerts/${row.id}/acknowledge"><button class="btn btn-line-ink" type="submit">Acknowledge</button></form>
+    </article>`).join("");
+    return `<section class="alert-panel" id="alerts" aria-labelledby="alerts-title">
+      <h2 id="alerts-title">Alerts</h2>
+      ${cards || `<p class="muted">No stuck jobs.</p>`}
+    </section>`;
+  } catch {
+    return `<section class="alert-panel" id="alerts"><h2>Alerts</h2><p class="muted">Alerts appear here after the latest migration is applied.</p></section>`;
+  }
 }
 
 async function pricingNote(c: { env: AppContext["Bindings"] }): Promise<string> {

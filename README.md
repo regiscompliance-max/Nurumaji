@@ -161,6 +161,10 @@ The operator board shows open jobs and on-duty technicians who are sharing a loc
 
 A technician fills a test sheet before marking electrical or plumbing work completed. The sheet is a record of what they entered. It does not apply a pass mark.
 
+## Stuck-job alerts
+
+Apply `migrations/0008_stuck_job_alerts.sql` before the alerts panel is used. It adds `job_alerts` and four rows in the existing `settings` table. Defaults are 30 minutes waiting for a technician, 4 hours accepted but not started, and 8 hours in progress. Texts are off until an admin switches on “Text me stuck-job alerts”. The check uses the existing every-minute cron.
+
 Probation length is the admin setting `probation_completed_jobs` on the Applications page. Leave it blank until Deng sets it. While it is blank, a technician on probation only receives standard-urgency jobs and does not leave probation automatically.
 
 Uploaded ID images, the onboarding selfie, and certificates are stored under `applications/` and are served only to the applicant or an admin/operator through `/api/join/documents/:id`. They are not public, not written to logs, and not shown on client job pages.
