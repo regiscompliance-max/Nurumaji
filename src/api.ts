@@ -278,6 +278,15 @@ api.post("/settings/probation", async (c) => {
   return c.json({ ok: true });
 });
 
+api.get("/health", async (c) => {
+  try {
+    await c.env.DB.prepare("SELECT 1 AS n").first();
+    return c.json({ ok: true, database: "ok" });
+  } catch {
+    return c.json({ ok: false, database: "unavailable" }, 503);
+  }
+});
+
 api.route("/join", joinApi);
 api.route("/admin", adminApi);
 api.route("/operator", operatorApi);

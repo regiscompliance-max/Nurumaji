@@ -361,7 +361,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -454,6 +454,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <button class="btn btn-amber" type="submit">Save summary texts</button>
     </form>
     </section>
+    ${await healthPanel(c, setting)}
     <section id="documents">
     <h2>Technician documents</h2>
     <form method="post" action="/api/admin/documents" class="form">
@@ -625,6 +626,26 @@ async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> 
     <h2 id="alerts-title">Alerts</h2>
     ${cards.join("") || `<p class="muted">No alerts.</p>`}
   </section>`;
+}
+
+async function healthPanel(c: { env: AppContext["Bindings"] }, setting: Record<string, string>): Promise<string> {
+  let status = "<p class=\"muted\">No health check has been stored yet.</p>";
+  try {
+    const row = await c.env.DB.prepare(
+      "SELECT checked_at, database_ok, portal_ok, balance_kes, detail FROM health_checks ORDER BY checked_at DESC LIMIT 1"
+    ).first<{ checked_at: number; database_ok: number; portal_ok: number; balance_kes: number | null; detail: string }>();
+    if (row) {
+      const balance = row.balance_kes == null ? "not read" : `KES ${Number(row.balance_kes).toLocaleString("en-KE")}`;
+      status = `<ul><li>Database ${row.database_ok ? "ok" : "failed"}</li><li>Portal ${row.portal_ok ? "ok" : "failed"}</li><li>Africa's Talking balance ${balance}</li><li>${escapeHtml(row.detail)}</li></ul>`;
+    }
+  } catch { status = "<p class=\"muted\">Health checks appear after the latest migration is applied.</p>"; }
+  return `<section id="system-health"><h2>System health</h2>${status}
+    <form method="post" action="/api/admin/health" class="form">
+      <div class="field"><label for="balance-min">Warn below, KES</label><input id="balance-min" name="threshold" inputmode="numeric" required value="${escapeHtml(setting.at_balance_min_kes || "50")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.health_sms === "1" ? " checked" : ""}> Text me system warnings</label>
+      <p class="muted">Off until this is switched on. Checks run every few hours. Texts cost money.</p>
+      <button class="btn btn-line-ink" type="submit">Save health warnings</button>
+    </form></section>`;
 }
 
 async function ownDocuments(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {

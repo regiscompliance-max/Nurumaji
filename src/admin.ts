@@ -75,6 +75,19 @@ adminApi.get("/digests/latest", async (c) => {
   });
 });
 
+adminApi.post("/health", async (c) => {
+  const body = await readAny(c);
+  const threshold = Number(body.threshold);
+  if (!Number.isFinite(threshold) || threshold < 1 || threshold > 100000) return c.json({ error: "Enter a balance threshold in shillings." }, 400);
+  const sms = body.sms === "1" || body.sms === "on" || body.sms === true;
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('at_balance_min_kes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(Math.round(threshold))),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('health_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(sms ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#system-health", 303);
+  return c.json({ ok: true });
+});
+
 adminApi.post("/documents", async (c) => {
   const actor = c.get("user");
   const body = await readAny(c);
