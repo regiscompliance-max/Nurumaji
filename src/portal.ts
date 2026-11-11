@@ -4,6 +4,7 @@ import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
 import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
+import { documentLabel } from "./compliance.mjs";
 import { jobReference } from "./followups.mjs";
 import { canEditRating } from "./ratings.mjs";
 import { daysPastDue, invoiceReference, owedBucket } from "./payments.mjs";
@@ -98,7 +99,7 @@ for (const role of ["client", "technician", "operator", "admin"] as const) {
     const user = await readSession(c);
     if (!user) return c.redirect("/portal/login", 303);
     if (user.role !== role && !(role === "operator" && user.role === "admin")) return c.html(forbiddenPage(user.role), 403);
-    if (role === "client") return c.html(clientPage(user.phone, await loadClientJobs(c, user.id)));
+    if (role === "client") return c.html(await clientPage(c.env, user.phone, await loadClientJobs(c, user.id)));
     if (role === "technician") return c.html(await technicianDashboard(c, user));
     if (role === "operator") return c.html(await operatorDashboard(c, user));
     if (role === "admin") return c.html(await adminDashboard(c, user));
@@ -225,6 +226,7 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
     <h1>Your offers</h1>
     ${await technicianRatings(c, user.id)}
     ${await renewalBanner(c, user.id)}
+    ${await ownDocuments(c, user.id)}
     <form class="portrait-form" method="post" action="/api/technician/photo" enctype="multipart/form-data">
       ${portrait}
       <div class="field"><label for="portrait">Profile photo</label><input id="portrait" name="photo" type="file" accept="image/jpeg,image/png,image/webp" required></div>
@@ -314,6 +316,8 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <p class="eyebrow">Operator</p>
     <h1>Job board</h1>
     ${await alertsPanel(c)}
+    ${await documentHolds(c)}
+    ${await dueFollowUps(c)}
     ${await moneyOwedPanel(c, "/portal/operator")}
     <p><a href="/portal/applications">Review applications</a> · <a href="/portal/admin/reports">Reports</a></p>
     <p class="lede">Amounts are typed here. Nothing on this page has a preset price.</p>
@@ -358,7 +362,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -449,6 +453,32 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <label class="trade-choice"><input type="checkbox" name="weekly" value="1"${setting.digest_weekly_sms === "1" ? " checked" : ""}> Text me the weekly summary</label>
       <p class="muted">Both are off until switched on. One text goes to each admin at 07:00 Nairobi time. Texts cost money.</p>
       <button class="btn btn-amber" type="submit">Save summary texts</button>
+    </form>
+    </section>
+    ${await healthPanel(c, setting)}
+    ${await backupPanel(c)}
+    <section id="repeat-followups">
+    <h2>Repeat visits</h2>
+    <form method="post" action="/api/admin/repeat" class="form">
+      <div class="field"><label for="electrical-months">Electrical check, months</label><input id="electrical-months" name="electricalMonths" inputmode="numeric" required value="${escapeHtml(setting.repeat_electrical_months || "12")}"></div>
+      <div class="field"><label for="heater-months">Water heater service, months</label><input id="heater-months" name="heaterMonths" inputmode="numeric" required value="${escapeHtml(setting.repeat_heater_months || "12")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.repeat_sms === "1" ? " checked" : ""}> Text clients when a visit is due again</label>
+      <p class="muted">Off until this is switched on. A client can opt out. Texts cost money. No price is included.</p>
+      <button class="btn btn-line-ink" type="submit">Save repeat visits</button>
+    </form>
+    </section>
+    <section id="documents">
+    <h2>Technician documents</h2>
+    <form method="post" action="/api/admin/documents" class="form">
+      <div class="field"><label for="doc-tech">Technician</label><select id="doc-tech" name="userId" required><option value="">Choose</option>${(techs.results ?? []).map((tech) => `<option value="${tech.id}">${escapeHtml(tech.name || "Technician")}</option>`).join("")}</select></div>
+      <div class="field"><label for="doc-type">Document</label><select id="doc-type" name="docType"><option value="id">ID</option><option value="insurance">Insurance</option><option value="licence">Licence</option><option value="certificate">Certificate</option></select></div>
+      <div class="field"><label for="doc-expiry">Expiry date</label><input id="doc-expiry" name="expiryDate" type="date" required></div>
+      <button class="btn btn-amber" type="submit">Record document</button>
+    </form>
+    <form method="post" action="/api/admin/compliance-sms" class="form">
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.compliance_sms === "1" ? " checked" : ""}> Text document expiry reminders</label>
+      <p class="muted">Off until this is switched on. Reminders still show in the portal. Texts cost money.</p>
+      <button class="btn btn-line-ink" type="submit">Save document texts</button>
     </form>
     </section>
     <section id="rating-sms">
@@ -610,6 +640,127 @@ async function alertsPanel(c: { env: AppContext["Bindings"] }): Promise<string> 
   </section>`;
 }
 
+async function backupPanel(c: { env: AppContext["Bindings"] }): Promise<string> {
+  let when = "No backup yet.";
+  let status = "none";
+  let link = "";
+  try {
+    const rows = await c.env.DB.prepare(
+      "SELECT key, value FROM settings WHERE key IN ('backup_last_on', 'backup_last_status', 'backup_last_key')"
+    ).all<{ key: string; value: string }>();
+    const values = Object.fromEntries((rows.results ?? []).map((row) => [row.key, row.value]));
+    if (values.backup_last_on) when = values.backup_last_on;
+    status = values.backup_last_status || "none";
+    if (values.backup_last_key) link = `<p><a href="/api/admin/backups/latest">Download the latest backup</a></p>`;
+  } catch { /* Settings are always present. */ }
+  return `<section id="backups"><h2>Backups</h2><p>Last backup ${escapeHtml(when)} · ${escapeHtml(status)}</p>${link}
+    <p class="muted">A copy of the database tables is saved each night at 02:00 Nairobi time. Sign-in codes and session tokens are left out. Copies older than 30 days are removed.</p></section>`;
+}
+
+async function healthPanel(c: { env: AppContext["Bindings"] }, setting: Record<string, string>): Promise<string> {
+  let status = "<p class=\"muted\">No health check has been stored yet.</p>";
+  try {
+    const row = await c.env.DB.prepare(
+      "SELECT checked_at, database_ok, portal_ok, balance_kes, detail FROM health_checks ORDER BY checked_at DESC LIMIT 1"
+    ).first<{ checked_at: number; database_ok: number; portal_ok: number; balance_kes: number | null; detail: string }>();
+    if (row) {
+      const balance = row.balance_kes == null ? "not read" : `KES ${Number(row.balance_kes).toLocaleString("en-KE")}`;
+      status = `<ul><li>Database ${row.database_ok ? "ok" : "failed"}</li><li>Portal ${row.portal_ok ? "ok" : "failed"}</li><li>Africa's Talking balance ${balance}</li><li>${escapeHtml(row.detail)}</li></ul>`;
+    }
+  } catch { status = "<p class=\"muted\">Health checks appear after the latest migration is applied.</p>"; }
+  return `<section id="system-health"><h2>System health</h2>${status}
+    <form method="post" action="/api/admin/health" class="form">
+      <div class="field"><label for="balance-min">Warn below, KES</label><input id="balance-min" name="threshold" inputmode="numeric" required value="${escapeHtml(setting.at_balance_min_kes || "50")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.health_sms === "1" ? " checked" : ""}> Text me system warnings</label>
+      <p class="muted">Off until this is switched on. Checks run every few hours. Texts cost money.</p>
+      <button class="btn btn-line-ink" type="submit">Save health warnings</button>
+    </form></section>`;
+}
+
+async function ownDocuments(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {
+  let hold = "";
+  let rows = "";
+  try {
+    const profile = await c.env.DB.prepare("SELECT dispatch_hold FROM technician_profiles WHERE user_id = ?").bind(userId).first<{ dispatch_hold: string | null }>();
+    if (profile?.dispatch_hold) hold = `<p><strong>Dispatch is paused.</strong> ${escapeHtml(profile.dispatch_hold)}. An admin records a valid replacement before new jobs are offered.</p>`;
+    const docs = await c.env.DB.prepare(
+      "SELECT doc_type, expiry_date FROM compliance_documents WHERE user_id = ? AND replaced_at IS NULL ORDER BY expiry_date"
+    ).bind(userId).all<{ doc_type: string; expiry_date: string }>();
+    rows = (docs.results ?? []).map((doc) => `<li>${escapeHtml(documentLabel(doc.doc_type))} · expires ${escapeHtml(doc.expiry_date)}</li>`).join("");
+  } catch {
+    return "";
+  }
+  return `<section id="my-documents"><h2>Documents</h2>${hold}
+    ${rows ? `<ul>${rows}</ul>` : `<p class="muted">No documents recorded yet.</p>`}
+    <form method="post" action="/api/technician/documents" class="form">
+      <div class="field"><label for="my-doc-type">Document</label><select id="my-doc-type" name="docType"><option value="id">ID</option><option value="insurance">Insurance</option><option value="licence">Licence</option><option value="certificate">Certificate</option></select></div>
+      <div class="field"><label for="my-doc-expiry">Expiry date</label><input id="my-doc-expiry" name="expiryDate" type="date" required></div>
+      <button class="btn btn-line-ink" type="submit">Record document</button>
+    </form>
+    <p class="muted">These dates stay private to you, operators, and admins.</p></section>`;
+}
+
+async function dueFollowUps(c: { env: AppContext["Bindings"] }): Promise<string> {
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT followup_reminders.id, followup_reminders.kind, followup_reminders.due_on, jobs.trade, jobs.address, users.name
+       FROM followup_reminders
+       JOIN jobs ON jobs.id = followup_reminders.job_id
+       JOIN users ON users.id = followup_reminders.client_id
+       WHERE followup_reminders.status = 'due'
+       ORDER BY followup_reminders.due_on
+       LIMIT 40`
+    ).all<{ id: string; kind: string; due_on: string; trade: string; address: string | null; name: string | null }>();
+    const cards = (rows.results ?? []).map((row) => {
+      const label = row.kind === "water_heater" ? "Water heater service" : "Electrical safety check";
+      const buttons = ["contacted", "booked", "dismissed"].map((status) =>
+        `<form method="post" action="/api/operator/followups/${row.id}"><input type="hidden" name="status" value="${status}"><button class="btn btn-line-ink" type="submit">${status[0].toUpperCase()}${status.slice(1)}</button></form>`
+      ).join("");
+      return `<article class="alert-card"><h3>${label}</h3><p>${escapeHtml(row.name || "Client")}${row.address ? ` · ${escapeHtml(row.address)}` : ""} · due ${escapeHtml(row.due_on)}</p><div class="report-nav">${buttons}</div></article>`;
+    }).join("");
+    return `<section id="due-followups"><h2>Due for follow-up</h2>${cards || `<p class="muted">Nothing is due.</p>`}</section>`;
+  } catch {
+    return "";
+  }
+}
+
+async function followUpOptOut(env: AppContext["Bindings"], phone: string): Promise<string> {
+  try {
+    const row = await env.DB.prepare("SELECT followup_opt_out FROM users WHERE phone = ?").bind(phone).first<{ followup_opt_out: number }>();
+    const checked = row?.followup_opt_out === 1 ? " checked" : "";
+    return `<form method="post" action="/api/jobs/followup" class="form"><label class="trade-choice"><input type="checkbox" name="optOut" value="1"${checked}> Do not text me about a later visit</label><button class="btn btn-line-ink" type="submit">Save</button></form>`;
+  } catch {
+    return "";
+  }
+}
+
+async function documentHolds(c: { env: AppContext["Bindings"] }): Promise<string> {
+  try {
+    const holds = await c.env.DB.prepare(
+      `SELECT users.name, technician_profiles.dispatch_hold
+       FROM technician_profiles JOIN users ON users.id = technician_profiles.user_id
+       WHERE technician_profiles.dispatch_hold IS NOT NULL AND technician_profiles.dispatch_hold != ''
+       ORDER BY users.name`
+    ).all<{ name: string | null; dispatch_hold: string }>();
+    const reminders = await c.env.DB.prepare(
+      `SELECT users.name, compliance_documents.doc_type, compliance_reminders.days
+       FROM compliance_reminders
+       JOIN compliance_documents ON compliance_documents.id = compliance_reminders.document_id
+       JOIN users ON users.id = compliance_reminders.user_id
+       WHERE compliance_documents.replaced_at IS NULL
+       ORDER BY compliance_reminders.days`
+    ).all<{ name: string | null; doc_type: string; days: number }>();
+    const holdList = (holds.results ?? []).map((row) => `<li>${escapeHtml(row.name || "Technician")} · ${escapeHtml(row.dispatch_hold)}</li>`).join("");
+    const soon = (reminders.results ?? []).map((row) => `<li>${escapeHtml(row.name || "Technician")} · ${escapeHtml(documentLabel(row.doc_type))} · ${row.days} days</li>`).join("");
+    if (!holdList && !soon) return "";
+    return `<section id="document-holds"><h2>Documents</h2>
+      ${holdList ? `<h3>Paused</h3><ul>${holdList}</ul>` : ""}
+      ${soon ? `<h3>Expiring</h3><ul>${soon}</ul>` : ""}</section>`;
+  } catch {
+    return "";
+  }
+}
+
 async function technicianRatings(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {
   try {
     const profile = await c.env.DB.prepare(
@@ -754,7 +905,7 @@ function bookingPage(phone: string, serviceKey: string, urgency: string): string
   `), true);
 }
 
-function clientPage(phone: string, groups: Awaited<ReturnType<typeof loadClientJobs>>): string {
+async function clientPage(env: AppContext["Bindings"], phone: string, groups: Awaited<ReturnType<typeof loadClientJobs>>): Promise<string> {
   const items = groups.length
     ? groups.map((group) => jobBlock(group, true)).join("")
     : `<div class="portal-empty"><h2>Nothing here yet</h2><p>Nothing is booked yet. Request a visit and it will show up here.</p></div>`;
@@ -762,6 +913,7 @@ function clientPage(phone: string, groups: Awaited<ReturnType<typeof loadClientJ
     <p class="eyebrow">Client</p>
     <h1>Your jobs</h1>
     <p><a class="btn btn-amber" href="/portal/book">Request a visit</a></p>
+    ${await followUpOptOut(env, phone)}
     <div class="job-stack">${items}</div>
   `));
 }

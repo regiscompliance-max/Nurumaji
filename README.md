@@ -177,6 +177,24 @@ Apply `migrations/0010_report_snapshots.sql` after `0009`. It adds `report_snaps
 
 Apply `migrations/0011_failed_test_followups.sql` after `0010`. It adds `job_followups`. A failed test sheet still completes the job, then books one return visit. The reports page already counts failed test sheets.
 
+## Repeat visits
+
+Apply `migrations/0016_repeat_followups.sql` after `0015`. An electrical job is due for a safety check 12 months after it is completed. A plumbing job that mentions a water heater or geyser is due for servicing after 12 months. Both intervals are admin settings. **Text clients when a visit is due again** defaults to off. Clients can opt out. The text says the visit is with our licensed partner.
+
+## Nightly backups
+
+Apply `migrations/0015_backups.sql` after `0014`. At 02:00 Nairobi time the cron writes `backups/YYYY-MM-DD.json` in the existing `nurumaji-uploads` bucket and deletes copies older than 30 days. The file omits `otp_codes`, `sessions`, `invites`, and `rating_invites`.
+
+To restore, an admin downloads the JSON from the admin page. It is one object whose `tables` field holds each table’s rows. Review it, take a fresh backup, then insert the rows you need with the local D1 tools. Do not expect sign-in codes or session tokens to be in the file.
+
+## System health
+
+Apply `migrations/0014_health_checks.sql` after `0013`. `GET /api/health` checks the database and returns no secrets. The cron stores a check every four hours. **Text me system warnings** defaults to off. The balance warning starts at KES 50.
+
+## Technician documents
+
+Apply `migrations/0013_compliance_documents.sql` after `0012`. It adds `dispatch_hold` and the private `compliance_documents` table. Applicant files in `technician_documents` are unchanged. Text reminders stay off until “Text document expiry reminders” is switched on.
+
 ## Customer ratings
 
 Apply `migrations/0012_customer_ratings.sql` after `0011`. It adds `created_at` and `updated_at` on `ratings`, plus `rating_invites` and `rating_alerts`. Clients can already rate a finished job in the portal. A text asking for a rating stays off until “Ask clients for a rating by text” is switched on. A technician with no ratings is ranked as 4 out of 5, so a new technician is not placed last. Distance is still the first sort. The stored average stays 0, and the portal says “No rating yet”, until the first rating. Ratings are not shown on the public site.

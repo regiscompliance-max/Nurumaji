@@ -33,6 +33,7 @@ type TechRow = {
   approved: number;
   rating_avg: number;
   rating_count: number;
+  dispatch_hold: string | null;
 };
 
 export async function dispatchJob(env: Bindings, jobId: string): Promise<void> {
@@ -131,7 +132,8 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
     `SELECT users.id AS user_id, users.phone, users.name, technician_profiles.trades, technician_profiles.base_lat,
             technician_profiles.base_lng, technician_profiles.live_lat, technician_profiles.live_lng,
             technician_profiles.live_updated_at, technician_profiles.radius_km, technician_profiles.on_duty,
-            technician_profiles.approved, technician_profiles.rating_avg, technician_profiles.rating_count
+            technician_profiles.approved, technician_profiles.rating_avg, technician_profiles.rating_count,
+            technician_profiles.dispatch_hold
      FROM technician_profiles
      JOIN users ON users.id = technician_profiles.user_id
      WHERE users.role = 'technician' AND users.status = 'active'
@@ -151,7 +153,7 @@ async function eligibleTechnicians(env: Bindings, job: JobRow, excludeBusy: bool
   }
   const candidates = [];
   for (const tech of techs.results ?? []) {
-    if (seen.has(tech.user_id) || busy.has(tech.user_id)) continue;
+    if (seen.has(tech.user_id) || busy.has(tech.user_id) || tech.dispatch_hold) continue;
     if (!hasTrade(tech.trades, job.trade)) continue;
     const spot = positionForDispatch({
       baseLat: tech.base_lat,

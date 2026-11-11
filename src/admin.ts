@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { recordComplianceDocument } from "./compliance-run";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
 import { parsePaymentSettings } from "./payments.mjs";
@@ -72,6 +73,76 @@ adminApi.get("/digests/latest", async (c) => {
     savedAt: row.created_at,
     stats: JSON.parse(row.stats_json) as unknown,
   });
+});
+
+adminApi.get("/backups/latest", async (c) => {
+  const row = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'backup_last_key'").first<{ value: string }>();
+  if (!row?.value || !c.env.UPLOADS) return c.json({ error: "No backup is stored yet." }, 404);
+  const object = await c.env.UPLOADS.get(row.value);
+  if (!object) return c.json({ error: "No backup is stored yet." }, 404);
+  const filename = row.value.split("/").pop() || "backup.json";
+  return new Response(object.body, {
+    headers: {
+      "content-type": "application/json",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "cache-control": "no-store",
+    },
+  });
+});
+
+adminApi.post("/repeat", async (c) => {
+  const body = await readAny(c);
+  const electrical = Number(body.electricalMonths);
+  const heater = Number(body.heaterMonths);
+  if (!Number.isInteger(electrical) || electrical < 1 || electrical > 36 || !Number.isInteger(heater) || heater < 1 || heater > 36) {
+    return c.json({ error: "Enter each interval as a whole number of months from 1 to 36." }, 400);
+  }
+  const sms = body.sms === "1" || body.sms === "on" || body.sms === true;
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('repeat_electrical_months', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(electrical)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('repeat_heater_months', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(heater)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('repeat_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(sms ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#repeat-followups", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/health", async (c) => {
+  const body = await readAny(c);
+  const threshold = Number(body.threshold);
+  if (!Number.isFinite(threshold) || threshold < 1 || threshold > 100000) return c.json({ error: "Enter a balance threshold in shillings." }, 400);
+  const sms = body.sms === "1" || body.sms === "on" || body.sms === true;
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('at_balance_min_kes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(Math.round(threshold))),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('health_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(sms ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#system-health", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/documents", async (c) => {
+  const actor = c.get("user");
+  const body = await readAny(c);
+  const saved = await recordComplianceDocument(c.env, {
+    userId: String(body.userId || ""),
+    docType: String(body.docType || ""),
+    expiryDate: String(body.expiryDate || ""),
+    actorId: actor.id,
+    asAdmin: true,
+  });
+  if (saved.error) return c.json({ error: saved.error }, 400);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#documents", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/compliance-sms", async (c) => {
+  const body = await readAny(c);
+  const sms = body.sms === "1" || body.sms === "on" || body.sms === true;
+  await c.env.DB.prepare(
+    "INSERT INTO settings (key, value) VALUES ('compliance_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).bind(sms ? "1" : "0").run();
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#documents", 303);
+  return c.json({ ok: true });
 });
 
 adminApi.post("/rating-sms", async (c) => {

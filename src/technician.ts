@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
+import { recordComplianceDocument } from "./compliance-run";
 import { acceptOffer, declineOffer } from "./dispatch-run";
 import { createReturnVisit } from "./followup-run";
 import { storeTechnicianPhoto } from "./portrait";
@@ -105,6 +106,22 @@ technician.post("/duty", async (c) => {
   if (!onDuty) await clearLivePosition(c.env, user.id);
   if (wantsHtml(c)) return c.redirect("/portal/technician", 303);
   return c.json({ ok: true, onDuty });
+});
+
+technician.post("/documents", async (c) => {
+  const user = c.get("user");
+  if (user.role !== "technician") return c.json({ error: "Technicians only." }, 403);
+  const raw = await readBody(c);
+  const saved = await recordComplianceDocument(c.env, {
+    userId: user.id,
+    docType: String(raw.docType || ""),
+    expiryDate: String(raw.expiryDate || ""),
+    actorId: user.id,
+    asAdmin: false,
+  });
+  if (saved.error) return c.json({ error: saved.error }, 400);
+  if (wantsHtml(c)) return c.redirect("/portal/technician", 303);
+  return c.json({ ok: true });
 });
 
 technician.post("/offers/:id/accept", async (c) => {

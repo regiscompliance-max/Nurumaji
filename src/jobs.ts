@@ -140,6 +140,18 @@ jobs.post("/:id/quotes/:quoteId/approve", async (c) => {
   return c.json({ ok: true });
 });
 
+jobs.post("/followup", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.json({ error: "Sign in required." }, 401);
+  if (user.role !== "client") return c.json({ error: "Clients only." }, 403);
+  const raw = await readBody(c);
+  const body = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const optOut = body.optOut === "1" || body.optOut === "on" || body.optOut === true;
+  await c.env.DB.prepare("UPDATE users SET followup_opt_out = ? WHERE id = ?").bind(optOut ? 1 : 0, user.id).run();
+  if (wantsHtml(c)) return c.redirect("/portal/client", 303);
+  return c.json({ ok: true });
+});
+
 jobs.post("/:id/rating", async (c) => {
   const user = await readSession(c);
   if (!user) return c.json({ error: "Sign in required." }, 401);
