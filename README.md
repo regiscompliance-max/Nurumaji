@@ -165,6 +165,10 @@ A technician fills a test sheet before marking electrical or plumbing work compl
 
 Apply `migrations/0008_stuck_job_alerts.sql` before the alerts panel is used. It adds `job_alerts` and four rows in the existing `settings` table. Defaults are 30 minutes waiting for a technician, 4 hours accepted but not started, and 8 hours in progress. Texts are off until an admin switches on “Text me stuck-job alerts”. The check uses the existing every-minute cron.
 
+## Payment reminders
+
+Apply `migrations/0009_payment_reminders.sql` after `0008`. It adds a due date, a pause flag, and the payment method on `invoices`, plus `invoice_reminders`. New invoices are due 7 days after they are issued unless an admin changes that. Client texts stay off until “Send payment reminders to clients” is switched on. There is no M-Pesa collection in this repo. Marking an invoice paid records M-Pesa, cash, or bank, and an optional M-Pesa code.
+
 Probation length is the admin setting `probation_completed_jobs` on the Applications page. Leave it blank until Deng sets it. While it is blank, a technician on probation only receives standard-urgency jobs and does not leave probation automatically.
 
 Uploaded ID images, the onboarding selfie, and certificates are stored under `applications/` and are served only to the applicant or an admin/operator through `/api/join/documents/:id`. They are not public, not written to logs, and not shown on client job pages.

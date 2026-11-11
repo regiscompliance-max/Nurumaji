@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
+import { parsePaymentSettings } from "./payments.mjs";
 import { parseStuckSettings } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
@@ -48,6 +49,23 @@ adminApi.post("/settings", async (c) => {
     c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('pricing_note', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(pricing),
   ]);
   if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/payment-reminders", async (c) => {
+  const body = await readAny(c);
+  const parsed = parsePaymentSettings({
+    dueDays: body.dueDays,
+    offsets: body.offsets,
+    sms: body.sms,
+  });
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('invoice_due_days', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.dueDays)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('payment_reminder_offsets', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.offsets.join(",")),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('payment_reminders_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.sms ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#payment-reminders", 303);
   return c.json({ ok: true });
 });
 
