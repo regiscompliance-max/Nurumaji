@@ -3,3 +3,7 @@
 OTP_DEV_MODE=true
 # Overrides the workers.dev APP_URL while you are on wrangler dev.
 APP_URL=http://127.0.0.1:8787
+# WhatsApp Cloud API. Leave these blank unless you are testing a real send.
+# Do not commit real values. Production uses `wrangler secret put WA_TOKEN` and `WA_PHONE_ID`.
+WA_TOKEN=
+WA_PHONE_ID=

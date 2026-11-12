@@ -145,6 +145,19 @@ adminApi.post("/compliance-sms", async (c) => {
   return c.json({ ok: true });
 });
 
+adminApi.post("/whatsapp-otp", async (c) => {
+  const body = await readAny(c);
+  const template = String(body.template || "").trim();
+  if (!/^[a-z0-9_]{1,64}$/.test(template)) return c.json({ error: "The template name can use lowercase letters, numbers, and underscores." }, 400);
+  const enabled = body.enabled === "1" || body.enabled === "on" || body.enabled === true;
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('whatsapp_otp', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(enabled ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('whatsapp_otp_template', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(template),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#whatsapp-otp", 303);
+  return c.json({ ok: true });
+});
+
 adminApi.post("/rating-sms", async (c) => {
   const body = await readAny(c);
   const delay = Number(body.delayHours);

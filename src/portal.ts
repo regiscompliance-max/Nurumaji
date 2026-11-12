@@ -51,7 +51,12 @@ portal.use("*", async (c, next) => {
 portal.get("/login", async (c) => {
   const user = await readSession(c);
   if (user) return c.redirect(dashboardPath(user.role), 303);
-  return c.html(loginPage());
+  let whatsApp = false;
+  try {
+    const row = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'whatsapp_otp'").first<{ value: string }>();
+    whatsApp = row?.value === "1";
+  } catch { whatsApp = false; }
+  return c.html(loginPage(whatsApp));
 });
 
 portal.post("/logout", async (c) => {
@@ -362,7 +367,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -479,6 +484,15 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.compliance_sms === "1" ? " checked" : ""}> Text document expiry reminders</label>
       <p class="muted">Off until this is switched on. Reminders still show in the portal. Texts cost money.</p>
       <button class="btn btn-line-ink" type="submit">Save document texts</button>
+    </form>
+    </section>
+    <section id="whatsapp-otp">
+    <h2>Sign-in codes</h2>
+    <form method="post" action="/api/admin/whatsapp-otp" class="form">
+      <div class="field"><label for="wa-template">WhatsApp template name</label><input id="wa-template" name="template" required value="${escapeHtml(setting.whatsapp_otp_template || "nurumaji_login_code")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="enabled" value="1"${setting.whatsapp_otp === "1" ? " checked" : ""}> Send login codes by WhatsApp</label>
+      <p class="muted">Off until this is switched on. If WhatsApp cannot send the code, the portal uses a text message instead.</p>
+      <button class="btn btn-amber" type="submit">Save sign-in codes</button>
     </form>
     </section>
     <section id="rating-sms">
@@ -687,10 +701,25 @@ async function lastSmsFailure(c: { env: AppContext["Bindings"] }): Promise<strin
     if (!values.sms_last_failure_at) return `<p id="sms-failure">No failed text has been recorded.</p>`;
     const when = formatWhen(Number(values.sms_last_failure_at));
     const code = values.sms_last_failure_code ? ` (${escapeHtml(values.sms_last_failure_code)})` : "";
-    return `<p id="sms-failure">Last text failure: ${escapeHtml(when)} · ${escapeHtml(values.sms_last_failure_status || "Unknown")}${code} · ${escapeHtml(values.sms_last_failure_phone || "***")}</p>`;
+    return `<p id="sms-failure">Last text failure: ${escapeHtml(when)} · ${escapeHtml(values.sms_last_failure_status || "Unknown")}${code} · ${escapeHtml(values.sms_last_failure_phone || "***")}</p>${await whatsAppHealth(c)}`;
   } catch {
-    return `<p id="sms-failure">No failed text has been recorded.</p>`;
+    return `<p id="sms-failure">No failed text has been recorded.</p>${await whatsAppHealth(c)}`;
   }
+}
+
+async function whatsAppHealth(c: { env: AppContext["Bindings"] }): Promise<string> {
+  const configured = c.env.WA_TOKEN && c.env.WA_PHONE_ID ? "yes" : "no";
+  let failure = "No failed WhatsApp code has been recorded.";
+  try {
+    const rows = await c.env.DB.prepare(
+      "SELECT key, value FROM settings WHERE key IN ('wa_last_failure_at', 'wa_last_failure_status', 'wa_last_failure_phone')"
+    ).all<{ key: string; value: string }>();
+    const values = Object.fromEntries((rows.results ?? []).map((row) => [row.key, row.value]));
+    if (values.wa_last_failure_at) {
+      failure = `Last WhatsApp failure: ${formatWhen(Number(values.wa_last_failure_at))} · ${values.wa_last_failure_status || "Unknown"} · ${values.wa_last_failure_phone || "***"}`;
+    }
+  } catch { /* Settings may be unread before the first failure. */ }
+  return `<p id="wa-health">WhatsApp configured: ${configured}</p><p id="wa-failure">${escapeHtml(failure)}</p>`;
 }
 
 async function ownDocuments(c: { env: AppContext["Bindings"] }, userId: string): Promise<string> {
@@ -841,7 +870,10 @@ function dashboardPath(role: Role): string {
   return `/portal/${role}`;
 }
 
-function loginPage(): string {
+function loginPage(whatsApp = false): string {
+  const channel = whatsApp
+    ? "We will send a 6-digit code by WhatsApp, or by text if WhatsApp is not available."
+    : "We will send a 6-digit code by text.";
   return page(
     "Sign in",
     `<main class="portal-card">
@@ -849,7 +881,7 @@ function loginPage(): string {
       <div>
         <p class="eyebrow">Portal</p>
         <h1>Sign in</h1>
-        <p class="lede">Use the Kenyan mobile number we can reach you on. We will send a 6-digit code by text.</p>
+        <p class="lede">Use the Kenyan mobile number we can reach you on. ${channel}</p>
       </div>
       <form id="otp-request" class="form">
         <div class="field">

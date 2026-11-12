@@ -1,5 +1,6 @@
 import { failureLogLine, maskPhone, readSmsDelivery } from "./sms-delivery.mjs";
 import type { Bindings } from "./types";
+import { sendWhatsAppCode, whatsAppLoginEnabled } from "./whatsapp";
 
 const LIVE_URL = "https://api.africastalking.com/version1/messaging";
 const SANDBOX_URL = "https://api.sandbox.africastalking.com/version1/messaging";
@@ -50,6 +51,14 @@ export async function sendLoginCode(env: Bindings, phone: string, code: string):
   if (env.OTP_DEV_MODE === "true") {
     console.log(`[OTP_DEV_MODE] ${phone} ${code}`);
     return;
+  }
+  if (await whatsAppLoginEnabled(env)) {
+    try {
+      await sendWhatsAppCode(env, phone, code);
+      return;
+    } catch {
+      console.error("WhatsApp login code failed. Trying a text message.");
+    }
   }
   const response = await postAfricaSms(env, phone, `Your Nuru & Maji sign-in code is ${code}. It expires in 5 minutes.`);
   const delivery = await deliveryOf(env, response);
