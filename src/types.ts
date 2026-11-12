@@ -8,6 +8,9 @@ export type Bindings = {
   // Optional. Sent as `from` on the live API only. Ignored when AT_USERNAME is "sandbox".
   AT_SENDER_ID?: string;
   OTP_DEV_MODE?: string;
+  // WhatsApp Cloud API. Set with `wrangler secret put`. Never commit the values.
+  WA_TOKEN?: string;
+  WA_PHONE_ID?: string;
   APP_URL?: string;
   UPLOADS?: R2Bucket;
 };
