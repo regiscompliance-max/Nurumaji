@@ -11,6 +11,7 @@ import { checkRatingInvites } from "./rating-run";
 import { ratingGet, ratingPost } from "./rating-page";
 import { writeDigests } from "./report-run";
 import { checkPaymentReminders } from "./payment-run";
+import { checkQuoteFollowUps } from "./quote-run";
 import { checkStuckJobs } from "./stuck-run";
 import { portal } from "./portal";
 import type { AppContext, Bindings } from "./types";
@@ -94,7 +95,7 @@ function errorPage(message: string): string {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), complianceCheck(env), healthCheck(env), nightlyBackup(env), repeatFollowUps(env), checkStuckJobs(env), checkPaymentReminders(env), writeDigests(env), checkRatingInvites(env)]).catch((error) => {
+    ctx.waitUntil(Promise.all([expireOffers(env), licenceCheck(env), complianceCheck(env), healthCheck(env), nightlyBackup(env), repeatFollowUps(env), checkStuckJobs(env), checkPaymentReminders(env), checkQuoteFollowUps(env), writeDigests(env), checkRatingInvites(env)]).catch((error) => {
       console.error(error);
     }));
   },

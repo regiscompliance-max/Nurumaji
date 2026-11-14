@@ -6,4 +6,4 @@ export function dueDigests(now: number): { period: "day" | "week"; start: number
 export function snapshotMissing(savedStarts: number[], periodStart: number): boolean;
 export function owedAt(invoices: { status: string; issuedAt: number | null; paidAt: number | null; dueAt: number | null; amountKes: number }[], windowEnd: number): { owedKes: number; overdueKes: number };
 export function formatDuration(seconds: number | null): string | null;
-export function digestText(period: string, stats: { booked: number; completed: number; collectedTotal: number; overdueKes: number; stuckOpen: number }): string;
+export function digestText(period: string, stats: { booked: number; completed: number; collectedTotal: number; overdueKes: number; stuckOpen: number; quoteNudges?: number }): string;

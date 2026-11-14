@@ -34,6 +34,35 @@ export function readWhatsAppDelivery(httpStatus, bodyText) {
   return { ok, status, httpStatus };
 }
 
+export function whatsAppNoticePayload(to, detail, templateName) {
+  return {
+    messaging_product: "whatsapp",
+    to: String(to).replace(/^\+/, ""),
+    type: "template",
+    template: {
+      name: String(templateName),
+      language: { code: "en" },
+      components: [
+        { type: "body", parameters: [{ type: "text", text: String(detail) }] },
+      ],
+    },
+  };
+}
+
+export async function deliverWhatsAppNotice({ fetchImpl, token, phoneId, to, detail, template }) {
+  const response = await fetchImpl(`https://graph.facebook.com/v21.0/${encodeURIComponent(phoneId)}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(whatsAppNoticePayload(to, detail, template)),
+  });
+  const raw = await response.text();
+  const safe = token ? raw.split(token).join("[redacted]") : raw;
+  return readWhatsAppDelivery(response.status, safe);
+}
+
 export async function deliverWhatsAppOtp({ fetchImpl, token, phoneId, to, code, template }) {
   const response = await fetchImpl(`https://graph.facebook.com/v21.0/${encodeURIComponent(phoneId)}/messages`, {
     method: "POST",

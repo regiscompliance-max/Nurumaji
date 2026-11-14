@@ -53,7 +53,7 @@ test("counts money still owed at the end of the window, not money already paid",
 });
 
 test("builds one short summary from the figures it is given", () => {
-  const text = digestText("day", { booked: 5, completed: 3, collectedTotal: 12000, overdueKes: 8000, stuckOpen: 1 });
-  assert.equal(text, "Nuru & Maji yesterday: 5 booked, 3 done, KES 12,000 collected, KES 8,000 overdue, 1 stuck.");
+  const text = digestText("day", { booked: 5, completed: 3, collectedTotal: 12000, overdueKes: 8000, stuckOpen: 1, quoteNudges: 2 });
+  assert.equal(text, "Nuru & Maji yesterday: 5 booked, 3 done, KES 12,000 collected, KES 8,000 overdue, 1 stuck, 2 quote follow-ups.");
   assert.equal(/licensed|certified/i.test(text), false);
 });

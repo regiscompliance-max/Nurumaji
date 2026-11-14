@@ -18,6 +18,7 @@ export type ReportStats = {
   overdueKes: number;
   quotesSent: number;
   quotesAccepted: number;
+  quoteNudges: number;
   applications: number;
   lowRatings: number;
   bookingToAssignedSeconds: number | null;
@@ -91,6 +92,16 @@ export async function loadReport(env: Bindings, start: number, end: number): Pro
   const quotesAccepted = await db.prepare(
     "SELECT COUNT(*) AS n FROM job_events WHERE type = 'quote_approved' AND created_at >= ? AND created_at < ?"
   ).bind(start, end).first<CountRow>();
+  let quoteNudges = 0;
+  try {
+    const nudged = await db.prepare(
+      "SELECT COUNT(*) AS n FROM quote_nudges WHERE sent_at >= ? AND sent_at < ?"
+    ).bind(start, end).first<CountRow>();
+    quoteNudges = count(nudged);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!message.includes("no such table")) throw error;
+  }
   const applications = await db.prepare(
     "SELECT COUNT(*) AS n FROM technician_applications WHERE created_at >= ? AND created_at < ?"
   ).bind(start, end).first<CountRow>();
@@ -153,6 +164,7 @@ export async function loadReport(env: Bindings, start: number, end: number): Pro
     overdueKes: owed.overdueKes,
     quotesSent: count(quotesSent),
     quotesAccepted: count(quotesAccepted),
+    quoteNudges,
     applications: count(applications),
     lowRatings: count(lowRatings),
     bookingToAssignedSeconds: toAssigned?.n == null ? null : Number(toAssigned.n),

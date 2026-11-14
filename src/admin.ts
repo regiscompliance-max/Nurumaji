@@ -4,6 +4,7 @@ import { recordComplianceDocument } from "./compliance-run";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
 import { parsePaymentSettings } from "./payments.mjs";
+import { parseQuoteFollowUpSettings } from "./quote-followups.mjs";
 import { parseStuckSettings } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
@@ -180,6 +181,25 @@ adminApi.post("/digest", async (c) => {
     c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('digest_weekly_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(weekly ? "1" : "0"),
   ]);
   if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#digest", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/quote-followups", async (c) => {
+  const body = await readAny(c);
+  const parsed = parseQuoteFollowUpSettings({
+    days: body.days,
+    finalDays: body.finalDays,
+    sms: body.sms,
+    template: body.template,
+  });
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('quote_followup_days', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.days)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('quote_followup_final_days', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.finalDays == null ? "" : String(parsed.finalDays)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('quote_followup_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.sms ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('whatsapp_quote_template', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.template),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#quote-followups", 303);
   return c.json({ ok: true });
 });
 
