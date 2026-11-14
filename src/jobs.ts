@@ -32,13 +32,15 @@ type JobRow = {
   lng: number | null;
   preferred_time: number | null;
   status: string;
+  materials?: string | null;
+  photo_consent?: number | null;
   assigned_tech_id?: string | null;
   created_at: number;
   updated_at: number;
 };
 
 type EventRow = { id: string; type: string; note: string | null; created_at: number };
-type PhotoRow = { id: string; created_at: number };
+type PhotoRow = { id: string; created_at: number; kind?: string | null; marketing_ok?: number | null };
 type QuoteRow = { id: string; amount_kes: number; status: string; created_at: number; nudges?: { kind: string; sent_at: number }[] };
 type RatingRow = { score: number; comment: string | null; created_at: number | null };
 
@@ -85,6 +87,9 @@ jobs.post("/", async (c) => {
     await c.env.DB.batch([insertJob(false), ...rest]);
   }
 
+  if (input.photoConsent) {
+    try { await c.env.DB.prepare("UPDATE jobs SET photo_consent = 1 WHERE id = ?").bind(id).run(); } catch { /* Column arrives with migration 0021. */ }
+  }
   if (input.urgency === "emergency") {
     try { await notifyEmergencyBooking(c.env); } catch (error) { console.error(error); }
   }
@@ -237,6 +242,7 @@ async function viewableJob(c: { env: AppContext["Bindings"] }, user: UserRow, id
     "SELECT id, client_id, assigned_tech_id FROM jobs WHERE id = ?"
   ).bind(id).first<{ id: string; client_id: string; assigned_tech_id: string | null }>();
   if (!job) return null;
+  if (user.role === "admin" || user.role === "operator") return job;
   if (job.client_id === user.id) return job;
   if (user.role !== "technician") return null;
   if (job.assigned_tech_id === user.id) return job;
@@ -256,7 +262,7 @@ async function ownJob(c: { env: AppContext["Bindings"] }, user: UserRow, id: str
 async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
   const [events, photos, quotes, rating] = await Promise.all([
     c.env.DB.prepare("SELECT id, type, note, created_at FROM job_events WHERE job_id = ? ORDER BY created_at ASC").bind(jobId).all<EventRow>(),
-    c.env.DB.prepare("SELECT id, created_at FROM job_photos WHERE job_id = ? ORDER BY created_at ASC").bind(jobId).all<PhotoRow>(),
+    loadJobPhotos(c, jobId),
     c.env.DB.prepare("SELECT id, amount_kes, status, created_at FROM quotes WHERE job_id = ? ORDER BY created_at ASC").bind(jobId).all<QuoteRow>(),
     c.env.DB.prepare("SELECT score, comment, created_at FROM ratings WHERE job_id = ?").bind(jobId).first<RatingRow>(),
   ]);
@@ -296,6 +302,18 @@ export async function loadInspection(c: { env: AppContext["Bindings"] }, jobId: 
     return row ?? null;
   } catch {
     return null;
+  }
+}
+
+async function loadJobPhotos(c: { env: AppContext["Bindings"] }, jobId: string): Promise<{ results?: PhotoRow[] }> {
+  try {
+    return await c.env.DB.prepare(
+      "SELECT id, created_at, kind, marketing_ok FROM job_photos WHERE job_id = ? ORDER BY created_at ASC"
+    ).bind(jobId).all<PhotoRow>();
+  } catch {
+    return c.env.DB.prepare(
+      "SELECT id, created_at FROM job_photos WHERE job_id = ? ORDER BY created_at ASC"
+    ).bind(jobId).all<PhotoRow>();
   }
 }
 
@@ -359,7 +377,7 @@ async function loadTestSheet(c: { env: AppContext["Bindings"] }, jobId: string) 
 
 export async function loadAnyJob(c: { env: AppContext["Bindings"] }, jobId: string) {
   const listed = await c.env.DB.prepare(
-    `SELECT jobs.id, jobs.client_id, jobs.service_key, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
+    `SELECT jobs.id, jobs.client_id, jobs.service_key, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address, jobs.materials, jobs.photo_consent,
             jobs.preferred_time, jobs.created_at, jobs.assigned_tech_id,
             tech.name AS tech_name,
             CASE WHEN technician_profiles.photo_key IS NOT NULL AND technician_profiles.photo_key != '' THEN 1 ELSE 0 END AS tech_has_photo
@@ -374,7 +392,7 @@ export async function loadAnyJob(c: { env: AppContext["Bindings"] }, jobId: stri
 
 export async function loadClientJobs(c: { env: AppContext["Bindings"] }, userId: string) {
   const listed = await c.env.DB.prepare(
-    `SELECT jobs.id, jobs.client_id, jobs.service_key, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
+    `SELECT jobs.id, jobs.client_id, jobs.service_key, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address, jobs.materials, jobs.photo_consent,
             jobs.preferred_time, jobs.created_at, jobs.assigned_tech_id,
             tech.name AS tech_name,
             CASE WHEN technician_profiles.photo_key IS NOT NULL AND technician_profiles.photo_key != '' THEN 1 ELSE 0 END AS tech_has_photo
@@ -404,7 +422,7 @@ async function overLimit(c: { env: AppContext["Bindings"] }, userId: string, ip:
 }
 
 async function readJobInput(c: { req: { header: (name: string) => string | undefined; json: () => Promise<unknown>; formData: () => Promise<FormData> } }): Promise<
-  | { ok: true; serviceKey: string | null; trade: "electrical" | "plumbing"; description: string; urgency: "standard" | "urgent" | "emergency"; address: string | null; lat: number | null; lng: number | null; preferredTime: number | null; files: File[] }
+  | { ok: true; serviceKey: string | null; photoConsent: boolean; trade: "electrical" | "plumbing"; description: string; urgency: "standard" | "urgent" | "emergency"; address: string | null; lat: number | null; lng: number | null; preferredTime: number | null; files: File[] }
   | { ok: false; error: string }
 > {
   const contentType = c.req.header("content-type") || "";
@@ -457,6 +475,7 @@ async function readJobInput(c: { req: { header: (name: string) => string | undef
   return {
     ok: true,
     serviceKey: service?.key ?? null,
+    photoConsent: raw.photoConsent === "1" || raw.photoConsent === "on" || raw.photoConsent === true,
     trade: service?.key === "inspection" ? "electrical" : tradeParsed.data,
     description,
     urgency: urgencyParsed.success ? urgencyParsed.data : "standard",

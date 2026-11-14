@@ -99,6 +99,54 @@
     syncEmergency();
   }
 
+  function fitPhoto(file) {
+    if (!file || !file.type || file.type.indexOf("image/") !== 0 || !window.createImageBitmap) return Promise.resolve(file);
+    return createImageBitmap(file).then(function (bitmap) {
+      var maxEdge = 1600;
+      var scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+      if (scale === 1 && file.size < 900000) return file;
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      var context = canvas.getContext("2d");
+      if (!context) return file;
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return new Promise(function (resolve) {
+        canvas.toBlob(function (blob) {
+          resolve(blob ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file);
+        }, "image/jpeg", 0.82);
+      });
+    }).catch(function () { return file; });
+  }
+
+  var progress = document.getElementById("progress-form");
+  if (progress) {
+    progress.addEventListener("submit", function (event) {
+      if (progress.dataset.plain === "1") return;
+      var inputs = progress.querySelectorAll("input[type=file][data-resize]");
+      if (!inputs.length) return;
+      event.preventDefault();
+      var data = new FormData(progress);
+      var work = [];
+      Array.prototype.forEach.call(inputs, function (input) {
+        var files = Array.prototype.slice.call(input.files || []);
+        data.delete(input.name);
+        files.forEach(function (file) {
+          work.push(fitPhoto(file).then(function (fitted) { data.append(input.name, fitted, fitted.name); }));
+        });
+      });
+      Promise.all(work).then(function () {
+        return fetch(progress.action, { method: "POST", body: data, headers: { accept: "text/html" } });
+      }).then(function (response) {
+        if (!response.ok) return response.json().then(function (body) { window.alert(body.error || "The update could not be saved."); });
+        window.location.href = response.url || "/portal/technician";
+      }).catch(function () {
+        progress.dataset.plain = "1";
+        progress.submit();
+      });
+    });
+  }
+
   if (booking && status) {
     booking.addEventListener("submit", function (event) {
       event.preventDefault();

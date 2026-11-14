@@ -4,6 +4,8 @@ import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
 import { EMERGENCY_PROBLEMS, emergencyNotice } from "./emergency.mjs";
 import { readEmergencySettings } from "./emergency-run";
+import { warrantyLine } from "./job-report.mjs";
+import { readReportSettings } from "./job-report-run";
 import { defaultNextDue, inspectionReportLines, nairobiDate } from "./inspection.mjs";
 import { readInspectionPrice } from "./inspection-run";
 import { loadAnyJob, loadClientJobs } from "./jobs";
@@ -17,7 +19,7 @@ import { SERVICES, lookupService } from "./services.mjs";
 import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261114b";
+const ASSET = "20261114c";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -89,6 +91,21 @@ portal.get("/book", async (c) => {
   return c.html(bookingPage(user.phone, service, urgency, await readInspectionPrice(c.env), emergency));
 });
 
+portal.get("/admin/gallery", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.redirect("/portal/login", 303);
+  if (user.role !== "admin") return c.html(forbiddenPage(user.role), 403);
+  return c.html(page("Marketing photos", shell(user.phone, await marketingGallery(c))));
+});
+
+portal.get("/jobs/:id/report", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.redirect("/portal/login", 303);
+  const group = await loadAnyJob(c, c.req.param("id"));
+  if (!group || !canSeeJob(user, group.job)) return c.html(page("Job report", shell(user.phone, "<h1>Report not found</h1>")), 404);
+  return c.html(await jobReportPage(c.env, user.phone, group, user.role === "admin"));
+});
+
 portal.get("/jobs/:id/inspection", async (c) => {
   const user = await readSession(c);
   if (!user) return c.redirect("/portal/login", 303);
@@ -105,7 +122,7 @@ portal.get("/jobs/:id", async (c) => {
     const group = await loadAnyJob(c, c.req.param("id"));
     if (!group || !canSeeJob(user, group.job)) return c.html(page("Job", shell(user.phone, "<h1>Job not found</h1><p><a href=\"/portal/operator\">Back to the board</a></p>")), 404);
     const back = user.role === "technician" ? "/portal/technician" : "/portal/operator";
-    return c.html(jobPage(user.phone, group, back, false));
+    return c.html(jobPage(user.phone, group, back, false, user.role === "admin"));
   }
   if (user.role !== "client") return c.html(forbiddenPage(user.role), 403);
   const groups = await loadClientJobs(c, user.id);
@@ -229,12 +246,14 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
       <p>${escapeHtml(assigned.description)}</p>
       ${assigned.address ? `<p>${escapeHtml(assigned.address)}</p>` : ""}
       ${assigned.service_key === "inspection" ? `<p><a href="/portal/jobs/${assigned.id}#inspection-form">Inspection checklist</a></p>` : ""}
-      <form method="post" action="/api/technician/jobs/${assigned.id}/progress" enctype="multipart/form-data" class="form">
+      <form id="progress-form" method="post" action="/api/technician/jobs/${assigned.id}/progress" enctype="multipart/form-data" class="form">
         <input type="hidden" name="status" value="${nextStatus}">
-        <div class="field"><label for="note">Note</label><textarea id="note" name="note" maxlength="500"></textarea></div>
+        <div class="field"><label for="note">Note</label><textarea id="note" name="note" maxlength="500" placeholder="What was done"></textarea></div>
+        ${nextStatus === "on_site" ? `<div class="field" id="before-upload"><label for="before-photos">Before photos, up to 4</label><input id="before-photos" name="beforePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple data-resize="1"></div>` : ""}
         ${nextStatus === "completed" ? `${testFields(assigned.trade)}<div class="field"><label for="materials">Materials used</label><input id="materials" name="materials" maxlength="500"></div>
-        <div class="field"><label for="minutesSpent">Minutes spent</label><input id="minutesSpent" name="minutesSpent" inputmode="numeric"></div>` : ""}
-        <div class="field"><label for="photo">Photo, optional</label><input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp"></div>
+        <div class="field"><label for="minutesSpent">Minutes spent</label><input id="minutesSpent" name="minutesSpent" inputmode="numeric"></div>
+        <div class="field" id="after-upload"><label for="after-photos">After photos, up to 4</label><input id="after-photos" name="afterPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple data-resize="1"></div>` : ""}
+        ${nextStatus === "en_route" ? `<div class="field"><label for="photo">Photo, optional</label><input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" data-resize="1"></div>` : ""}
         <button class="btn btn-amber" type="submit">${nextLabel}</button>
       </form>
     </article>` : "";
@@ -389,7 +408,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; on_call: number | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template', 'quote_followup_days', 'quote_followup_final_days', 'quote_followup_sms', 'whatsapp_quote_template', 'inspection_price_from', 'inspection_reminder_sms', 'emergency_bookings', 'emergency_min_kes', 'emergency_night_percent', 'emergency_weekend_percent', 'emergency_target_hours', 'emergency_show_target', 'emergency_alert', 'emergency_services_number', 'whatsapp_emergency_template')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template', 'quote_followup_days', 'quote_followup_final_days', 'quote_followup_sms', 'whatsapp_quote_template', 'inspection_price_from', 'inspection_reminder_sms', 'emergency_bookings', 'emergency_min_kes', 'emergency_night_percent', 'emergency_weekend_percent', 'emergency_target_hours', 'emergency_show_target', 'emergency_alert', 'emergency_services_number', 'whatsapp_emergency_template', 'close_photos_required', 'close_report_sms', 'warranty_repair_days', 'warranty_install_months', 'whatsapp_report_template')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -482,6 +501,18 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.quote_followup_sms === "1" ? " checked" : ""}> Send quote follow-up reminders</label>
       <p class="muted">Off until this is switched on. One reminder goes to the client after the waiting days. A later last reminder is sent only if that day count is filled in. Messages go between 08:00 and 19:00 Nairobi time. If WhatsApp sign-in codes are on, WhatsApp is tried first and a text is used when it cannot be sent. Messages cost money.</p>
       <button class="btn btn-amber" type="submit">Save quote follow-ups</button>
+    </form>
+    </section>
+    <section id="job-reports">
+    <h2>Job reports</h2>
+    <form method="post" action="/api/admin/job-reports" class="form">
+      <div class="field"><label for="repair-days">Repair cover, days</label><input id="repair-days" name="repairDays" inputmode="numeric" required value="${escapeHtml(setting.warranty_repair_days || "90")}"></div>
+      <div class="field"><label for="install-months">Installation cover, months</label><input id="install-months" name="installMonths" inputmode="numeric" required value="${escapeHtml(setting.warranty_install_months || "12")}"></div>
+      <div class="field"><label for="report-template">WhatsApp template name</label><input id="report-template" name="template" value="${escapeHtml(setting.whatsapp_report_template || "nurumaji_job_report")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="photosRequired" value="1"${setting.close_photos_required === "1" ? " checked" : ""}> Require a before photo and an after photo to close a job</label>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.close_report_sms === "1" ? " checked" : ""}> Text the client when the job report is ready</label>
+      <p class="muted">Both switches stay off until you turn them on. The report shows the cover periods above. The message uses WhatsApp first when sign-in codes are on, otherwise a text. Messages cost money. <a href="/portal/admin/gallery">Marketing photos</a></p>
+      <button class="btn btn-amber" type="submit">Save job reports</button>
     </form>
     </section>
     <section id="emergency-settings">
@@ -1038,6 +1069,7 @@ function bookingPage(phone: string, serviceKey: string, urgency: string, priceLi
       <div class="field"><label for="photos">Photos, optional</label>
         <input id="photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple>
       </div>
+      <label class="trade-choice"><input id="photo-consent" type="checkbox" name="photoConsent" value="1"> You may use anonymised photos of the work</label>
       <button class="btn btn-amber" type="submit">Send request</button>
       <p class="status" id="form-status" role="status"></p>
     </form>
@@ -1057,10 +1089,10 @@ async function clientPage(env: AppContext["Bindings"], phone: string, groups: Aw
   `));
 }
 
-function jobPage(phone: string, group: Awaited<ReturnType<typeof loadClientJobs>>[number], back: string, forClient = true): string {
+function jobPage(phone: string, group: Awaited<ReturnType<typeof loadClientJobs>>[number], back: string, forClient = true, canMarket = false): string {
   return page("Job", shell(phone, `
     <p><a href="${back}">Back</a></p>
-    ${jobBlock(group, false, forClient)}
+    ${jobBlock(group, false, forClient, canMarket)}
   `));
 }
 
@@ -1142,12 +1174,11 @@ function testSheetHtml(sheet: { trade: string; readings_json: string; result: st
     <li>Recorded ${escapeHtml(formatWhen(sheet.created_at))}${sheet.filler ? ` by ${escapeHtml(sheet.filler)}` : ""}</li></ul></section>`;
 }
 
-function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], compact: boolean, forClient = true): string {
+function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], compact: boolean, forClient = true, canMarket = false): string {
   const job = group.job;
   const when = job.preferred_time ? formatWhen(job.preferred_time) : "No preferred time yet";
-  const photos = group.photos.map((photo) =>
-    `<img src="/api/jobs/${job.id}/photos/${photo.id}" alt="Photo attached to this request" width="160" height="120">`
-  ).join("");
+  const photos = group.photos.map((photo) => photoCard(job.id, photo, canMarket, job.photo_consent === 1)).join("");
+  const closed = ["completed", "invoiced", "paid"].includes(job.status);
   const quotes = group.quotes.length
     ? group.quotes.map((quote) => {
       const approve = forClient && quote.status === "sent"
@@ -1180,6 +1211,7 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
     <p class="muted">${escapeHtml(when)}</p>
     <h3>Timeline</h3>
     ${timeline}
+    ${closed ? `<p><a href="/portal/jobs/${job.id}/report">View the job report</a></p>` : ""}
     ${photos ? `<div class="photo-row">${photos}</div>` : ""}
     ${compact ? "" : `<section class="doc-block"><h3>Quote</h3>${quotes}</section>${invoices ? `<section class="doc-block"><h3>Invoice</h3>${invoices}</section>` : ""}${testSheetHtml(group.testSheet)}${inspectionBlock(group, forClient)}<h3>Rating</h3>${rating}`}
     ${compact ? `<p><a href="/portal/jobs/${job.id}">Quote and rating</a></p>` : ""}
@@ -1242,6 +1274,75 @@ function quoteNudgeStatus(nudges: { kind: string; sent_at: number }[] | undefine
     last ? `Last reminder sent ${formatWhen(last.sent_at)}` : "Last reminder not sent",
   ];
   return `Follow-up: ${parts.join(". ")}.`;
+}
+
+function photoCard(jobId: string, photo: { id: string; kind?: string | null; marketing_ok?: number | null }, canMarket: boolean, consent: boolean): string {
+  const kind = photo.kind === "before" || photo.kind === "after" ? photo.kind : "photo";
+  const label = kind === "before" ? "Before" : kind === "after" ? "After" : "Photo";
+  const mark = !canMarket ? "" : consent
+    ? `<form method="post" action="/api/admin/photos/${photo.id}/marketing"><input type="hidden" name="jobId" value="${jobId}"><input type="hidden" name="ok" value="${photo.marketing_ok === 1 ? "0" : "1"}"><button class="btn btn-line-ink" type="submit">${photo.marketing_ok === 1 ? "Remove from marketing" : "OK for marketing"}</button></form>`
+    : `<p class="muted">Not agreed for marketing.</p>`;
+  return `<figure><img src="/api/jobs/${jobId}/photos/${photo.id}" alt="${label}" width="160" height="120"><figcaption>${label}</figcaption>${mark}</figure>`;
+}
+
+async function jobReportPage(env: AppContext["Bindings"], phone: string, group: Awaited<ReturnType<typeof loadClientJobs>>[number], canMarket: boolean): Promise<string> {
+  const job = group.job;
+  const closed = ["completed", "invoiced", "paid"].includes(job.status);
+  if (!closed) {
+    return page("Job report", shell(phone, `<h1>Job report</h1><p>The report appears when the job is closed.</p><p><a href="/portal/jobs/${job.id}">Back to the job</a></p>`));
+  }
+  const settings = await readReportSettings(env);
+  const done = group.events.find((event) => event.type === "completed");
+  const before = group.photos.filter((photo) => photo.kind === "before");
+  const after = group.photos.filter((photo) => photo.kind === "after");
+  const pair = (label: string, photo: { id: string; kind?: string | null; marketing_ok?: number | null } | undefined) => photo
+    ? `<figure><img src="/api/jobs/${job.id}/photos/${photo.id}" alt="${label}"><figcaption>${label}</figcaption>${canMarket ? "" : ""}</figure>`
+    : `<figure><figcaption>${label}</figcaption><p class="muted">None recorded.</p></figure>`;
+  const slots = Math.max(before.length, after.length, 1);
+  const columns = Array.from({ length: slots }, (_, index) => `<div class="photo-pair">${pair("Before", before[index])}${pair("After", after[index])}</div>`).join("");
+  const sheet = group.testSheet ? `<p><a href="/portal/jobs/${job.id}#test-sheet">Test sheet: ${escapeHtml(group.testSheet.result)}</a></p>` : "";
+  const inspection = group.inspection ? `<p><a href="/portal/jobs/${job.id}/inspection">Inspection: ${escapeHtml(group.inspection.result)}</a></p>` : "";
+  return page("Job report", shell(phone, `
+    <p class="no-print"><a href="/portal/jobs/${job.id}">Back to the job</a></p>
+    <article class="inspection-report" id="job-report">
+      <img src="/assets/logo-lockup.svg?v=${ASSET}" width="222" height="52" alt="Nuru &amp; Maji">
+      <h1>Job report</h1>
+      <p>${escapeHtml(titleCase(job.trade))}</p>
+      <p>${escapeHtml(job.description)}</p>
+      <p>Property: ${escapeHtml(job.address || "Address not recorded")}</p>
+      <p>Date: ${escapeHtml(formatWhen(done?.created_at || job.created_at))}</p>
+      <p>Technician: ${escapeHtml(firstName(job.tech_name ?? null))}</p>
+      <p>Work done: ${escapeHtml(done?.note || "Work completed")}</p>
+      ${job.materials ? `<p>Materials: ${escapeHtml(job.materials)}</p>` : ""}
+      ${columns}
+      ${sheet}${inspection}
+      <p>${escapeHtml(warrantyLine(settings.repairDays, settings.installMonths))}</p>
+    </article>
+  `));
+}
+
+async function marketingGallery(c: { env: AppContext["Bindings"] }): Promise<string> {
+  let cards = `<p class="muted">No photos have been marked for marketing.</p>`;
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT job_photos.id, job_photos.job_id, job_photos.kind, job_photos.created_at
+       FROM job_photos
+       JOIN jobs ON jobs.id = job_photos.job_id
+       WHERE job_photos.marketing_ok = 1 AND jobs.photo_consent = 1
+       ORDER BY job_photos.created_at DESC
+       LIMIT 60`
+    ).all<{ id: string; job_id: string; kind: string; created_at: number }>();
+    if (rows.results?.length) {
+      cards = `<div class="photo-row" id="marketing-gallery">${rows.results.map((photo) => {
+        const label = photo.kind === "before" ? "Before" : photo.kind === "after" ? "After" : "Photo";
+        return `<figure><img src="/api/jobs/${photo.job_id}/photos/${photo.id}" alt="${label}"><figcaption>${label} · ${escapeHtml(formatWhen(photo.created_at))}</figcaption></figure>`;
+      }).join("")}</div>`;
+    }
+  } catch {
+    cards = `<p class="muted">The gallery appears after the latest migration is applied.</p>`;
+  }
+  return `<p class="eyebrow">Admin</p><h1>Marketing photos</h1><p><a href="/portal/admin">Back</a></p>
+    <p class="muted">Only photos the client agreed to, and that an admin marked as OK. Names, phone numbers, and addresses are not shown.</p>${cards}`;
 }
 
 function canSeeJob(user: { id: string; role: Role }, job: { client_id?: string; assigned_tech_id?: string | null }): boolean {

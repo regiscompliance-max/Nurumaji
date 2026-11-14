@@ -4,6 +4,7 @@ import { recordComplianceDocument } from "./compliance-run";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
 import { parsePaymentSettings } from "./payments.mjs";
+import { canMarkForMarketing, parseReportSettings } from "./job-report.mjs";
 import { parseEmergencySettings } from "./emergency.mjs";
 import { parseInspectionSettings } from "./inspection.mjs";
 import { parseQuoteFollowUpSettings } from "./quote-followups.mjs";
@@ -183,6 +184,42 @@ adminApi.post("/digest", async (c) => {
     c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('digest_weekly_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(weekly ? "1" : "0"),
   ]);
   if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#digest", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/photos/:id/marketing", async (c) => {
+  const body = await readAny(c);
+  const photo = await c.env.DB.prepare(
+    `SELECT job_photos.id, jobs.photo_consent, jobs.id AS job_id
+     FROM job_photos JOIN jobs ON jobs.id = job_photos.job_id
+     WHERE job_photos.id = ?`
+  ).bind(c.req.param("id")).first<{ id: string; photo_consent: number | null; job_id: string }>();
+  if (!photo) return c.json({ error: "Photo not found." }, 404);
+  const decision = canMarkForMarketing({ consent: photo.photo_consent === 1, requested: body.ok === "1" || body.ok === "on" || body.ok === true });
+  if (!decision.ok) return c.json({ error: decision.error }, 400);
+  await c.env.DB.prepare("UPDATE job_photos SET marketing_ok = ? WHERE id = ?").bind(decision.value, photo.id).run();
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect(`/portal/jobs/${photo.job_id}`, 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/job-reports", async (c) => {
+  const body = await readAny(c);
+  const parsed = parseReportSettings({
+    photosRequired: body.photosRequired,
+    sms: body.sms,
+    repairDays: body.repairDays,
+    installMonths: body.installMonths,
+    template: body.template,
+  });
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('close_photos_required', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.photosRequired ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('close_report_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.sms ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('warranty_repair_days', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.repairDays)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('warranty_install_months', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.installMonths)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('whatsapp_report_template', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.template),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#job-reports", 303);
   return c.json({ ok: true });
 });
 
