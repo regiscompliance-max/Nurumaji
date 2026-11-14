@@ -4,6 +4,7 @@ import { recordComplianceDocument } from "./compliance-run";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
 import { parsePaymentSettings } from "./payments.mjs";
+import { parseEmergencySettings } from "./emergency.mjs";
 import { parseInspectionSettings } from "./inspection.mjs";
 import { parseQuoteFollowUpSettings } from "./quote-followups.mjs";
 import { parseStuckSettings } from "./stuck-jobs.mjs";
@@ -182,6 +183,45 @@ adminApi.post("/digest", async (c) => {
     c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('digest_weekly_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(weekly ? "1" : "0"),
   ]);
   if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#digest", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/technicians/:id/on-call", async (c) => {
+  const body = await readAny(c);
+  const onCall = body.onCall === "1" || body.onCall === "on" || body.onCall === true;
+  const profile = await c.env.DB.prepare("SELECT user_id FROM technician_profiles WHERE user_id = ?").bind(c.req.param("id")).first();
+  if (!profile) return c.json({ error: "That technician has no profile yet." }, 400);
+  await c.env.DB.prepare("UPDATE technician_profiles SET on_call = ? WHERE user_id = ?").bind(onCall ? 1 : 0, c.req.param("id")).run();
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#emergency-settings", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/emergency", async (c) => {
+  const body = await readAny(c);
+  const parsed = parseEmergencySettings({
+    bookings: body.bookings,
+    minKes: body.minKes,
+    nightPercent: body.nightPercent,
+    weekendPercent: body.weekendPercent,
+    targetHours: body.targetHours,
+    showTarget: body.showTarget,
+    alert: body.alert,
+    servicesNumber: body.servicesNumber,
+    template: body.template,
+  });
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_bookings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.bookings ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_min_kes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.minKes)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_night_percent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.nightPercent)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_weekend_percent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.weekendPercent)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_target_hours', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(parsed.targetHours)),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_show_target', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.showTarget ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_alert', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.alert ? "1" : "0"),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('emergency_services_number', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.servicesNumber),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('whatsapp_emergency_template', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.template),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#emergency-settings", 303);
   return c.json({ ok: true });
 });
 

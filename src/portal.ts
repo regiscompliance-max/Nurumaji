@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { detailPage, invitePage, queuePage } from "./application-pages";
 import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
+import { EMERGENCY_PROBLEMS, emergencyNotice } from "./emergency.mjs";
+import { readEmergencySettings } from "./emergency-run";
 import { defaultNextDue, inspectionReportLines, nairobiDate } from "./inspection.mjs";
 import { readInspectionPrice } from "./inspection-run";
 import { loadAnyJob, loadClientJobs } from "./jobs";
@@ -15,7 +17,7 @@ import { SERVICES, lookupService } from "./services.mjs";
 import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261114a";
+const ASSET = "20261114b";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -83,7 +85,8 @@ portal.get("/book", async (c) => {
     const suffix = query.toString() ? `?${query}` : "";
     return c.redirect(`/book${suffix}`, 303);
   }
-  return c.html(bookingPage(user.phone, service, urgency, await readInspectionPrice(c.env)));
+  const emergency = await readEmergencySettings(c.env);
+  return c.html(bookingPage(user.phone, service, urgency, await readInspectionPrice(c.env), emergency));
 });
 
 portal.get("/jobs/:id/inspection", async (c) => {
@@ -280,6 +283,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     urgency: c.req.query("urgency") || "",
     area: c.req.query("area") || "",
   };
+  const emergency = await readEmergencySettings(c.env);
   const rows = await c.env.DB.prepare(
     `SELECT id, trade, urgency, status, address, description, operator_flag
      FROM jobs
@@ -287,7 +291,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
        AND (? = '' OR trade = ?)
        AND (? = '' OR urgency = ?)
        AND (? = '' OR lower(coalesce(address, '')) LIKE ?)
-     ORDER BY operator_flag DESC, updated_at DESC
+     ORDER BY CASE urgency WHEN 'emergency' THEN 0 ELSE 1 END, operator_flag DESC, updated_at DESC
      LIMIT 40`
   ).bind(
     filters.status, filters.status,
@@ -315,9 +319,13 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
         <button class="btn btn-amber" type="submit">Create invoice</button>
       </form>` : "";
     const paidForm = job.status === "invoiced" ? paymentForm(job.id, "/portal/operator", "card") : "";
+    const emergencyBadge = job.urgency === "emergency"
+      ? `<p class="badge badge-emergency">Emergency (24/7)</p>`
+      : "";
     cards.push(`<article class="portal-empty job-card" id="job-${job.id}">
+      ${emergencyBadge}
       <p class="eyebrow">${job.operator_flag === 1 ? "Flagged" : escapeHtml(statusLabel(job.status))}</p>
-      <h2>${escapeHtml(titleCase(job.trade))} · ${escapeHtml(job.urgency)}</h2>
+      <h2>${escapeHtml(titleCase(job.trade))} · ${escapeHtml(job.urgency === "emergency" ? "Emergency (24/7)" : job.urgency)}</h2>
       <p>${escapeHtml(job.description)}</p>
       ${job.address ? `<p>${escapeHtml(job.address)}</p>` : ""}
       <p><a href="/portal/jobs/${job.id}">Open job</a></p>
@@ -347,7 +355,7 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
     <form method="get" action="/portal/operator" class="form board-filters">
       ${select("status", "Status", ["new", "offered", "assigned", "en_route", "on_site", "completed", "invoiced", "paid", "cancelled"])}
       ${select("trade", "Trade", ["electrical", "plumbing"])}
-      ${select("urgency", "Urgency", ["standard", "urgent", "emergency"])}
+      ${select("urgency", "Urgency", emergency.bookings ? ["standard", "urgent", "emergency"] : ["standard", "urgent"])}
       <div class="field"><label for="area">Area</label><input id="area" name="area" value="${escapeHtml(filters.area)}"></div>
       <button class="btn btn-line-ink" type="submit">Filter</button>
     </form>
@@ -356,12 +364,13 @@ async function operatorDashboard(c: { env: AppContext["Bindings"]; req: { query:
       <div class="field"><label for="phone">Client mobile</label><input id="phone" name="phone" type="tel" required placeholder="07XX XXX XXX"></div>
       <div class="field"><label for="client-name">Name, optional</label><input id="client-name" name="name" maxlength="80"></div>
       <div class="field"><label for="new-trade">Trade</label><select id="new-trade" name="trade"><option value="electrical">Electrical</option><option value="plumbing">Plumbing</option></select></div>
-      <div class="field"><label for="new-urgency">Urgency</label><select id="new-urgency" name="urgency"><option value="standard">Standard</option><option value="urgent">Urgent</option><option value="emergency">Emergency</option></select></div>
+      <div class="field"><label for="new-urgency">Urgency</label><select id="new-urgency" name="urgency"><option value="standard">Standard</option><option value="urgent">Urgent</option>${emergency.bookings ? `<option value="emergency">Emergency (24/7)</option>` : ""}</select></div>
       <div class="field"><label for="new-address">Area</label><input id="new-address" name="address" required maxlength="300"></div>
       <div class="field"><label for="new-description">What is needed</label><textarea id="new-description" name="description" required minlength="8"></textarea></div>
       <button class="btn btn-amber" type="submit">Create job</button>
     </form>
-    <div class="job-stack">${cards.join("") || "<p>No jobs match.</p>"}</div>
+    <p id="emergency-target" class="muted">Emergency response target: ${emergency.targetHours} hours. Clients are not shown this${emergency.showTarget ? "" : ", because that switch is off"}.</p>
+    <div class="job-stack" id="dispatch-board">${cards.join("") || "<p>No jobs match.</p>"}</div>
   `), false, true);
 }
 
@@ -370,7 +379,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
     "SELECT id, name, phone, role, status FROM users ORDER BY created_at DESC LIMIT 80"
   ).all<{ id: string; name: string | null; phone: string; role: string; status: string }>();
   const techs = await c.env.DB.prepare(
-    `SELECT users.id, users.name, technician_profiles.approved, technician_profiles.trades,
+    `SELECT users.id, users.name, technician_profiles.approved, technician_profiles.trades, technician_profiles.on_call,
             technician_applications.id AS application_id, technician_applications.personal_json
      FROM users
      LEFT JOIN technician_profiles ON technician_profiles.user_id = users.id
@@ -379,8 +388,8 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      )
      WHERE users.role = 'technician'
      ORDER BY users.name`
-  ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template', 'quote_followup_days', 'quote_followup_final_days', 'quote_followup_sms', 'whatsapp_quote_template', 'inspection_price_from', 'inspection_reminder_sms')").all<{ key: string; value: string }>();
+  ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; on_call: number | null; application_id: string | null; personal_json: string | null }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template', 'quote_followup_days', 'quote_followup_final_days', 'quote_followup_sms', 'whatsapp_quote_template', 'inspection_price_from', 'inspection_reminder_sms', 'emergency_bookings', 'emergency_min_kes', 'emergency_night_percent', 'emergency_weekend_percent', 'emergency_target_hours', 'emergency_show_target', 'emergency_alert', 'emergency_services_number', 'whatsapp_emergency_template')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -474,6 +483,27 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <p class="muted">Off until this is switched on. One reminder goes to the client after the waiting days. A later last reminder is sent only if that day count is filled in. Messages go between 08:00 and 19:00 Nairobi time. If WhatsApp sign-in codes are on, WhatsApp is tried first and a text is used when it cannot be sent. Messages cost money.</p>
       <button class="btn btn-amber" type="submit">Save quote follow-ups</button>
     </form>
+    </section>
+    <section id="emergency-settings">
+    <h2>Emergency call-outs</h2>
+    <form method="post" action="/api/admin/emergency" class="form">
+      <div class="field"><label for="emergency-min">Proposed minimum call-out, KES</label><input id="emergency-min" name="minKes" inputmode="numeric" required value="${escapeHtml(setting.emergency_min_kes || "4000")}"></div>
+      <div class="field"><label for="emergency-night">Proposed night surcharge, percent</label><input id="emergency-night" name="nightPercent" inputmode="numeric" required value="${escapeHtml(setting.emergency_night_percent || "50")}"></div>
+      <div class="field"><label for="emergency-weekend">Proposed weekend and public holiday surcharge, percent</label><input id="emergency-weekend" name="weekendPercent" inputmode="numeric" required value="${escapeHtml(setting.emergency_weekend_percent || "25")}"></div>
+      <div class="field"><label for="emergency-hours">Response target, hours</label><input id="emergency-hours" name="targetHours" inputmode="numeric" required value="${escapeHtml(setting.emergency_target_hours || "2")}"></div>
+      <div class="field"><label for="emergency-number">Emergency services number, optional</label><input id="emergency-number" name="servicesNumber" value="${escapeHtml(setting.emergency_services_number || "")}" placeholder="Leave blank unless you want a number shown"></div>
+      <div class="field"><label for="emergency-template">WhatsApp template name</label><input id="emergency-template" name="template" value="${escapeHtml(setting.whatsapp_emergency_template || "nurumaji_emergency_alert")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="bookings" value="1"${setting.emergency_bookings === "1" ? " checked" : ""}> Accept emergency bookings</label>
+      <label class="trade-choice"><input type="checkbox" name="showTarget" value="1"${setting.emergency_show_target === "1" ? " checked" : ""}> Show emergency response target to clients</label>
+      <label class="trade-choice"><input type="checkbox" name="alert" value="1"${setting.emergency_alert === "1" ? " checked" : ""}> Text or WhatsApp an alert for each emergency booking</label>
+      <p class="muted">Each switch stays off until you turn it on. The charges are proposed and can be edited. Night is 19:00 to 08:00 Nairobi time. Clients do not see the response target unless that switch is on. The alert goes to admins and to technicians marked on call. Messages cost money.</p>
+      <button class="btn btn-amber" type="submit">Save emergency settings</button>
+    </form>
+    <h3>On call</h3>
+    ${(techs.results ?? []).filter((tech) => tech.approved != null).map((tech) => `<form method="post" action="/api/admin/technicians/${tech.id}/on-call" class="form">
+      <label class="trade-choice"><input type="checkbox" name="onCall" value="1"${tech.on_call === 1 ? " checked" : ""}> ${escapeHtml(tech.name || "Technician")} is on call</label>
+      <button class="btn btn-line-ink" type="submit">Save on call</button>
+    </form>`).join("") || `<p class="muted">No technician profiles yet.</p>`}
     </section>
     <section id="inspection-settings">
     <h2>Electrical safety inspection</h2>
@@ -937,10 +967,27 @@ function loginPage(whatsApp = false): string {
   );
 }
 
-function bookingPage(phone: string, serviceKey: string, urgency: string, priceLine: string): string {
+function bookingPage(phone: string, serviceKey: string, urgency: string, priceLine: string, emergency: Awaited<ReturnType<typeof readEmergencySettings>>): string {
   const service = lookupService(serviceKey);
   const trade = service?.trade ?? "electrical";
-  const chosenUrgency = urgency === "urgent" || urgency === "emergency" ? urgency : "standard";
+  const chosenUrgency = emergency.bookings && (urgency === "urgent" || urgency === "emergency")
+    ? urgency
+    : urgency === "urgent" ? "urgent" : "standard";
+  const problems = Object.entries(EMERGENCY_PROBLEMS).map(([key, item]) =>
+    `<option value="${escapeHtml(key)}">${escapeHtml(item.label)}</option>`
+  ).join("");
+  const notice = emergency.bookings
+    ? `<div id="emergency-notice"${chosenUrgency === "emergency" ? "" : " hidden"}>
+        ${emergencyNotice(emergency, Math.floor(Date.now() / 1000)).map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+        <div class="field"><label for="emergency-problem">What is happening?</label>
+          <select id="emergency-problem" name="problem"${chosenUrgency === "emergency" ? " required" : ""}>
+            <option value="">Choose</option>${problems}
+          </select>
+        </div>
+      </div>`
+    : urgency === "emergency"
+      ? `<p class="muted">Emergency bookings are not being accepted right now.</p>`
+      : "";
   const description = service ? service.label : "";
   const options = Object.entries(SERVICES).map(([key, item]) =>
     `<option value="${escapeHtml(key)}"${key === service?.key ? " selected" : ""}>${escapeHtml(item.label)}</option>`
@@ -972,9 +1019,10 @@ function bookingPage(phone: string, serviceKey: string, urgency: string, priceLi
         <select id="urgency" name="urgency">
           <option value="standard"${chosenUrgency === "standard" ? " selected" : ""}>Standard</option>
           <option value="urgent"${chosenUrgency === "urgent" ? " selected" : ""}>Urgent</option>
-          <option value="emergency"${chosenUrgency === "emergency" ? " selected" : ""}>Emergency</option>
+          ${emergency.bookings ? `<option value="emergency"${chosenUrgency === "emergency" ? " selected" : ""}>Emergency (24/7)</option>` : ""}
         </select>
       </div>
+      ${notice}
       <div class="field"><label for="address">Address or area</label>
         <input id="address" name="address" required maxlength="300" placeholder="Estate, road, and how to find the gate">
       </div>

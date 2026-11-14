@@ -4,6 +4,8 @@ import { nowSeconds } from "./crypto";
 import { saveJobRating } from "./rating-run";
 import { dispatchJob } from "./dispatch-run";
 import { readSession } from "./session";
+import { emergencyProblem } from "./emergency.mjs";
+import { notifyEmergencyBooking, readEmergencySettings } from "./emergency-run";
 import { nairobiDate, validateInspection } from "./inspection.mjs";
 import { lookupService } from "./services.mjs";
 import type { AppContext, UserRow } from "./types";
@@ -51,6 +53,9 @@ jobs.post("/", async (c) => {
 
   const input = await readJobInput(c);
   if (!input.ok) return c.json({ error: input.error }, 400);
+  if (input.urgency === "emergency" && !(await readEmergencySettings(c.env)).bookings) {
+    return c.json({ error: "Emergency bookings are not being accepted." }, 400);
+  }
 
   const now = nowSeconds();
   const id = crypto.randomUUID();
@@ -78,6 +83,10 @@ jobs.post("/", async (c) => {
     const message = error instanceof Error ? error.message : "";
     if (!message.includes("no such column")) throw error;
     await c.env.DB.batch([insertJob(false), ...rest]);
+  }
+
+  if (input.urgency === "emergency") {
+    try { await notifyEmergencyBooking(c.env); } catch (error) { console.error(error); }
   }
 
   if (input.files.length) {
@@ -416,13 +425,16 @@ async function readJobInput(c: { req: { header: (name: string) => string | undef
   }
 
   const service = lookupService(raw.service);
-  const tradeParsed = tradeSchema.safeParse(raw.trade ?? service?.trade);
+  const problem = emergencyProblem(raw.problem);
+  const tradeParsed = tradeSchema.safeParse(problem?.trade ?? raw.trade ?? service?.trade);
   if (!tradeParsed.success) return { ok: false, error: "Choose electrical or plumbing." };
   const urgencyParsed = urgencySchema.safeParse(raw.urgency || "standard");
   if (!urgencyParsed.success) return { ok: false, error: "Choose how urgent the job is." };
 
   let description = typeof raw.description === "string" ? raw.description.trim() : "";
-  if (service && description && !description.startsWith(service.label)) description = `${service.label}. ${description}`;
+  if (problem && description && !description.startsWith(problem.label)) description = `${problem.label}. ${description}`;
+  if (problem && !description) description = problem.label;
+  if (service && description && !description.startsWith(service.label) && !problem) description = `${service.label}. ${description}`;
   if (service && !description) description = service.label;
   if (description.length < 8 || description.length > 2000) return { ok: false, error: "Describe the problem in a few words." };
 

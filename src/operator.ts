@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { nowSeconds } from "./crypto";
 import { dispatchJob } from "./dispatch-run";
+import { notifyEmergencyBooking, readEmergencySettings } from "./emergency-run";
 import { normalizeKenyanMobile } from "./phone.mjs";
 import { readSession } from "./session";
 import { sendSms } from "./sms";
@@ -121,6 +122,9 @@ operatorApi.post("/jobs", async (c) => {
     address: z.string().trim().min(2).max(300),
   }).safeParse(body);
   if (!phone || !parsed.success) return c.json({ error: "Enter a Kenyan mobile, the trade, what is needed, how urgent it is, and the area." }, 400);
+  if (parsed.data.urgency === "emergency" && !(await readEmergencySettings(c.env)).bookings) {
+    return c.json({ error: "Emergency bookings are not being accepted." }, 400);
+  }
   const now = nowSeconds();
   let client = await c.env.DB.prepare("SELECT id, role FROM users WHERE phone = ?").bind(phone).first<{ id: string; role: string }>();
   if (!client) {
@@ -142,6 +146,9 @@ operatorApi.post("/jobs", async (c) => {
     ).bind(crypto.randomUUID(), jobId, user.id, "Request taken by phone", now),
   ]);
   await audit(c, user, "job_created_by_operator", { jobId });
+  if (parsed.data.urgency === "emergency") {
+    try { await notifyEmergencyBooking(c.env); } catch (error) { console.error(error); }
+  }
   try { await dispatchJob(c.env, jobId); } catch (error) { console.error(error); }
   if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/operator", 303);
   return c.json({ ok: true, id: jobId });

@@ -7,6 +7,8 @@ import {
   approveApplication, createInvite, joinApi, reapproveRenewal, rejectApplication, requestInfo, setChecklist, staffQueue,
 } from "./join-api";
 import { adminApi } from "./admin";
+import { emergencyNotice, EMERGENCY_PROBLEMS } from "./emergency.mjs";
+import { readEmergencySettings } from "./emergency-run";
 import { readInspectionPrice } from "./inspection-run";
 import { jobs } from "./jobs";
 import { operatorApi } from "./operator";
@@ -33,6 +35,15 @@ export const api = new Hono<AppContext>({ strict: false });
 api.use("*", async (c, next) => {
   if (!c.env.DB) return c.json({ error: "The portal database is not connected." }, 503);
   await next();
+});
+
+api.get("/emergency-booking", async (c) => {
+  const settings = await readEmergencySettings(c.env);
+  return c.json({
+    enabled: settings.bookings,
+    notice: settings.bookings ? emergencyNotice(settings, Math.floor(Date.now() / 1000)) : [],
+    problems: Object.entries(EMERGENCY_PROBLEMS).map(([key, item]) => ({ key, label: item.label })),
+  });
 });
 
 api.get("/inspection-price", async (c) => {
