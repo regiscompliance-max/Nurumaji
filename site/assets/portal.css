@@ -42,6 +42,11 @@
 .inspection-report{display:grid;gap:8px;max-width:720px;background:#fff;border:1px solid var(--rule);border-radius:4px;padding:28px 24px}
 .inspection-report img{width:180px;height:auto}
 .badge-emergency{display:inline-block;margin:0 0 8px;padding:4px 8px;border-radius:4px;background:#8E1D1D;color:#fff;font-size:13px;letter-spacing:.04em;text-transform:uppercase}
+.photo-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0}
+.photo-pair figure,.photo-row figure{margin:0}
+.photo-pair img,.photo-row img{width:100%;height:140px;object-fit:cover;background:#E7E1D6}
+.photo-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+#job-reports{display:grid;gap:16px;max-width:640px}
 #emergency-settings{display:grid;gap:12px;max-width:640px}
 #emergency-notice:not([hidden]){display:grid;gap:12px;max-width:640px}
 .inspection-report p{margin:0}

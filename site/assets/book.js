@@ -66,7 +66,8 @@
       if (!result.ok) { say(result.data.error || "Your name could not be saved."); return null; }
       var chosenUrgency = urgencyField ? urgencyField.value : "standard";
       if (chosenUrgency !== "urgent" && chosenUrgency !== "emergency") chosenUrgency = "standard";
-      return post("/api/jobs", { service: service, description: description, urgency: chosenUrgency });
+      var consent = document.getElementById("photo-consent");
+      return post("/api/jobs", { service: service, description: description, urgency: chosenUrgency, photoConsent: consent && consent.checked ? "1" : "" });
     }).then(function (result) {
       if (!result) return;
       if (!result.ok) { say(result.data.error || "The request could not be saved."); return; }

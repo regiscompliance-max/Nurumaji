@@ -6,6 +6,8 @@ import { acceptOffer, declineOffer } from "./dispatch-run";
 import { createReturnVisit } from "./followup-run";
 import { storeTechnicianPhoto } from "./portrait";
 import { readSession } from "./session";
+import { canCloseJob, PHOTO_BYTES, photoKind, withinPhotoLimit } from "./job-report.mjs";
+import { notifyJobReport, readReportSettings } from "./job-report-run";
 import { validateTestSheet } from "./test-sheet.mjs";
 import type { AppContext } from "./types";
 
@@ -171,11 +173,16 @@ technician.post("/jobs/:id/progress", async (c) => {
   const contentType = c.req.header("content-type") || "";
   let raw: Record<string, unknown> = {};
   let photo: File | null = null;
+  const beforePhotos: File[] = [];
+  const afterPhotos: File[] = [];
   if (contentType.includes("multipart/form-data")) {
     const form = await c.req.formData();
     for (const [key, value] of form.entries()) {
       if (value instanceof File) {
-        if (key === "photo" && value.size > 0) photo = value;
+        if (value.size <= 0) continue;
+        if (key === "photo") photo = value;
+        if (key === "beforePhotos") beforePhotos.push(value);
+        if (key === "afterPhotos") afterPhotos.push(value);
       } else {
         raw[key] = value;
       }
@@ -197,10 +204,27 @@ technician.post("/jobs/:id/progress", async (c) => {
   if (parsed.data.status === "completed") {
     sheet = validateTestSheet(job.trade, raw);
     if (sheet.error) return c.json({ error: sheet.error }, 400);
+    const settings = await readReportSettings(c.env);
+    const counts = await photoCounts(c.env, job.id);
+    const closing = canCloseJob({
+      required: settings.photosRequired,
+      beforeCount: counts.before,
+      afterCount: counts.after + afterPhotos.length,
+    });
+    if (!closing.ok) return c.json({ error: closing.error }, 400);
   }
-  if (photo && (!c.env.UPLOADS || !["image/jpeg", "image/png", "image/webp"].includes(photo.type) || photo.size > 5 * 1024 * 1024)) {
-    return c.json({ error: photo && !c.env.UPLOADS ? "Photo storage is not connected yet." : "Photos must be JPG, PNG or WebP, and under 5 MB." }, photo && !c.env.UPLOADS ? 503 : 400);
+  const visitPhotos = [...beforePhotos, ...afterPhotos, ...(photo ? [photo] : [])];
+  if (visitPhotos.length && !c.env.UPLOADS) return c.json({ error: "Photo storage is not connected yet." }, 503);
+  for (const file of visitPhotos) {
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > PHOTO_BYTES) {
+      return c.json({ error: "Photos must be JPG, PNG or WebP, and under 5 MB." }, 400);
+    }
   }
+  const counts = await photoCounts(c.env, job.id);
+  const beforeLimit = withinPhotoLimit(counts.before, beforePhotos.length);
+  if (!beforeLimit.ok) return c.json({ error: beforeLimit.error }, 400);
+  const afterLimit = withinPhotoLimit(counts.after, afterPhotos.length);
+  if (!afterLimit.ok) return c.json({ error: afterLimit.error }, 400);
   const now = nowSeconds();
   let failedSheetId: string | null = null;
   if (sheet && !sheet.error) {
@@ -241,14 +265,15 @@ technician.post("/jobs/:id/progress", async (c) => {
       console.error(error);
     }
   }
-  if (photo && c.env.UPLOADS) {
-    const photoId = crypto.randomUUID();
-    await c.env.UPLOADS.put(`jobs/${job.id}/${photoId}`, await photo.arrayBuffer(), {
-      httpMetadata: { contentType: photo.type },
-    });
-    await c.env.DB.prepare(
-      "INSERT INTO job_photos (id, job_id, r2_key, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).bind(photoId, job.id, `jobs/${job.id}/${photoId}`, user.id, now).run();
+  if (c.env.UPLOADS) {
+    await storeVisitPhotos(c.env, job.id, user.id, now, [
+      ...beforePhotos.map((file) => ({ file, kind: "before" })),
+      ...afterPhotos.map((file) => ({ file, kind: "after" })),
+      ...(photo ? [{ file: photo, kind: "attachment" }] : []),
+    ]);
+  }
+  if (parsed.data.status === "completed") {
+    try { await notifyJobReport(c.env, job.id, job.client_id); } catch (error) { console.error(error); }
   }
   if (wantsHtml(c)) return c.redirect("/portal/technician", 303);
   return c.json({ ok: true });
@@ -258,6 +283,43 @@ function normalizeTrades(value: unknown): string[] {
   const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
   const parsed = tradesSchema.safeParse([...new Set(list.map((item) => String(item).trim()).filter(Boolean))]);
   return parsed.success ? parsed.data : [];
+}
+
+async function photoCounts(env: AppContext["Bindings"], jobId: string): Promise<{ before: number; after: number }> {
+  try {
+    const rows = await env.DB.prepare(
+      "SELECT kind, COUNT(*) AS n FROM job_photos WHERE job_id = ? AND kind IN ('before', 'after') GROUP BY kind"
+    ).bind(jobId).all<{ kind: string; n: number }>();
+    const counts = { before: 0, after: 0 };
+    for (const row of rows.results ?? []) {
+      if (row.kind === "before") counts.before = Number(row.n) || 0;
+      if (row.kind === "after") counts.after = Number(row.n) || 0;
+    }
+    return counts;
+  } catch {
+    return { before: 0, after: 0 };
+  }
+}
+
+async function storeVisitPhotos(env: AppContext["Bindings"], jobId: string, userId: string, now: number, files: { file: File; kind: string }[]): Promise<void> {
+  if (!env.UPLOADS) return;
+  for (const item of files) {
+    const photoId = crypto.randomUUID();
+    const key = `jobs/${jobId}/${photoId}`;
+    await env.UPLOADS.put(key, await item.file.arrayBuffer(), { httpMetadata: { contentType: item.file.type } });
+    const kind = photoKind(item.kind);
+    try {
+      await env.DB.prepare(
+        "INSERT INTO job_photos (id, job_id, r2_key, uploaded_by, created_at, kind) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(photoId, jobId, key, userId, now, kind).run();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!message.includes("no such column")) throw error;
+      await env.DB.prepare(
+        "INSERT INTO job_photos (id, job_id, r2_key, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(photoId, jobId, key, userId, now).run();
+    }
+  }
 }
 
 function statusNote(status: string): string {
