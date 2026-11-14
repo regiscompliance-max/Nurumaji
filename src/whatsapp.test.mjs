@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deliverWhatsAppOtp, readWhatsAppDelivery, whatsAppOtpPayload } from "./whatsapp.mjs";
+import { deliverWhatsAppOtp, readWhatsAppDelivery, whatsAppNoticePayload, whatsAppOtpPayload } from "./whatsapp.mjs";
 
 test("builds an authentication template with the code in the body and the copy button", () => {
   const payload = whatsAppOtpPayload("+254712000111", "123456", "nurumaji_login_code");
@@ -10,6 +10,14 @@ test("builds an authentication template with the code in the body and the copy b
   assert.equal(payload.template.components[0].parameters[0].text, "123456");
   assert.equal(payload.template.components[1].sub_type, "url");
   assert.equal(payload.template.components[1].parameters[0].text, "123456");
+});
+
+test("sends a quote notice as a body parameter, not a login-code button", () => {
+  const payload = whatsAppNoticePayload("+254712000111", "still waiting", "nurumaji_quote_followup");
+  assert.equal(payload.template.name, "nurumaji_quote_followup");
+  assert.equal(payload.template.components.length, 1);
+  assert.equal(payload.template.components[0].parameters[0].text, "still waiting");
+  assert.equal(JSON.stringify(payload).includes("sub_type"), false);
 });
 
 test("accepts a message id and rejects a successful HTTP response without one", () => {

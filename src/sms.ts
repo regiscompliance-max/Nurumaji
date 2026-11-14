@@ -1,6 +1,6 @@
 import { failureLogLine, maskPhone, readSmsDelivery } from "./sms-delivery.mjs";
 import type { Bindings } from "./types";
-import { sendWhatsAppCode, whatsAppLoginEnabled } from "./whatsapp";
+import { sendWhatsAppCode, sendWhatsAppNotice, whatsAppLoginEnabled } from "./whatsapp";
 
 const LIVE_URL = "https://api.africastalking.com/version1/messaging";
 const SANDBOX_URL = "https://api.sandbox.africastalking.com/version1/messaging";
@@ -66,6 +66,22 @@ export async function sendLoginCode(env: Bindings, phone: string, code: string):
   console.error(failureLogLine({ ...delivery, phone }));
   await rememberFailure(env, delivery.status, delivery.statusCode, maskPhone(phone));
   throw new Error(delivery.httpStatus >= 200 && delivery.httpStatus < 300 ? "sms_rejected" : "sms_failed");
+}
+
+export async function sendCustomerMessage(env: Bindings, phone: string, message: string, whatsAppDetail: string, template: string): Promise<void> {
+  if (env.OTP_DEV_MODE === "true") {
+    console.log("[SMS] message sent");
+    return;
+  }
+  if (await whatsAppLoginEnabled(env)) {
+    try {
+      await sendWhatsAppNotice(env, phone, whatsAppDetail, template);
+      return;
+    } catch {
+      console.error("WhatsApp message failed. Trying a text message.");
+    }
+  }
+  await sendSms(env, phone, message);
 }
 
 export async function sendSms(env: Bindings, phone: string, message: string): Promise<void> {

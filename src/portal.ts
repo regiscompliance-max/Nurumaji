@@ -367,7 +367,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template', 'quote_followup_days', 'quote_followup_final_days', 'quote_followup_sms', 'whatsapp_quote_template')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -449,6 +449,17 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.payment_reminders_sms === "1" ? " checked" : ""}> Send payment reminders to clients</label>
       <p class="muted">Off until this is switched on. Texts go only between 08:00 and 19:00 Nairobi time, and they cost money.</p>
       <button class="btn btn-amber" type="submit">Save payment reminders</button>
+    </form>
+    </section>
+    <section id="quote-followups">
+    <h2>Quote follow-ups</h2>
+    <form method="post" action="/api/admin/quote-followups" class="form">
+      <div class="field"><label for="quote-days">Days with no reply</label><input id="quote-days" name="days" inputmode="numeric" required value="${escapeHtml(setting.quote_followup_days || "3")}"></div>
+      <div class="field"><label for="quote-final-days">Last reminder after, days</label><input id="quote-final-days" name="finalDays" inputmode="numeric" value="${escapeHtml(setting.quote_followup_final_days || "")}" placeholder="Leave blank to send only one"></div>
+      <div class="field"><label for="quote-template">WhatsApp template name</label><input id="quote-template" name="template" value="${escapeHtml(setting.whatsapp_quote_template || "nurumaji_quote_followup")}"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.quote_followup_sms === "1" ? " checked" : ""}> Send quote follow-up reminders</label>
+      <p class="muted">Off until this is switched on. One reminder goes to the client after the waiting days. A later last reminder is sent only if that day count is filled in. Messages go between 08:00 and 19:00 Nairobi time. If WhatsApp sign-in codes are on, WhatsApp is tried first and a text is used when it cannot be sent. Messages cost money.</p>
+      <button class="btn btn-amber" type="submit">Save quote follow-ups</button>
     </form>
     </section>
     <section id="digest">
@@ -1062,7 +1073,8 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
       const approve = forClient && quote.status === "sent"
         ? `<form method="post" action="/api/jobs/${job.id}/quotes/${quote.id}/approve"><button class="btn btn-amber" type="submit">Approve quote</button></form>`
         : `<p>Status: ${escapeHtml(quote.status)}</p>`;
-      return `<div><p><strong>KES ${quote.amount_kes.toLocaleString("en-KE")}</strong></p>${approve}</div>`;
+      const nudge = forClient ? "" : `<p id="quote-nudge-${quote.id}">${escapeHtml(quoteNudgeStatus(quote.nudges))}</p>`;
+      return `<div><p><strong>KES ${quote.amount_kes.toLocaleString("en-KE")}</strong></p>${approve}${nudge}</div>`;
     }).join("")
     : `<p class="muted">${forClient ? "A quote will appear here when one is sent. You can approve it from this page." : "No quote has been sent."}</p>`;
   const invoices = group.invoices.length
@@ -1139,6 +1151,17 @@ function eventLabel(type: string): string {
 
 function titleCase(value: string): string {
   return value.slice(0, 1).toUpperCase() + value.slice(1);
+}
+
+function quoteNudgeStatus(nudges: { kind: string; sent_at: number }[] | undefined): string {
+  const first = nudges?.find((nudge) => nudge.kind === "first");
+  const last = nudges?.find((nudge) => nudge.kind === "final");
+  if (!first && !last) return "Follow-up: no reminder sent.";
+  const parts = [
+    first ? `First reminder sent ${formatWhen(first.sent_at)}` : "First reminder not sent",
+    last ? `Last reminder sent ${formatWhen(last.sent_at)}` : "Last reminder not sent",
+  ];
+  return `Follow-up: ${parts.join(". ")}.`;
 }
 
 function formatWhen(seconds: number): string {

@@ -88,5 +88,5 @@ export function formatDuration(seconds) {
 export function digestText(period, stats) {
   const when = period === "week" ? "last week" : "yesterday";
   const money = (amount) => `KES ${Number(amount).toLocaleString("en-KE")}`;
-  return `Nuru & Maji ${when}: ${stats.booked} booked, ${stats.completed} done, ${money(stats.collectedTotal)} collected, ${money(stats.overdueKes)} overdue, ${stats.stuckOpen} stuck.`;
+  return `Nuru & Maji ${when}: ${stats.booked} booked, ${stats.completed} done, ${money(stats.collectedTotal)} collected, ${money(stats.overdueKes)} overdue, ${stats.stuckOpen} stuck, ${stats.quoteNudges || 0} quote follow-ups.`;
 }

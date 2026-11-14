@@ -1,6 +1,6 @@
 import { maskPhone } from "./sms-delivery.mjs";
 import type { Bindings } from "./types";
-import { deliverWhatsAppOtp, whatsAppTemplateName } from "./whatsapp.mjs";
+import { deliverWhatsAppNotice, deliverWhatsAppOtp, whatsAppTemplateName } from "./whatsapp.mjs";
 
 async function templateName(env: Bindings): Promise<string> {
   try {
@@ -42,6 +42,26 @@ export async function sendWhatsAppCode(env: Bindings, phone: string, code: strin
   if (result.ok) return;
   const status = result.status.split(env.WA_TOKEN).join("[redacted]");
   console.error(`WhatsApp login code was not delivered: ${status} phone ${maskPhone(phone)}`);
+  await rememberFailure(env, status, phone);
+  throw new Error("wa_failed");
+}
+
+export async function sendWhatsAppNotice(env: Bindings, phone: string, detail: string, template: string): Promise<void> {
+  if (!env.WA_TOKEN || !env.WA_PHONE_ID) {
+    await rememberFailure(env, "not configured", phone);
+    throw new Error("wa_not_configured");
+  }
+  const result = await deliverWhatsAppNotice({
+    fetchImpl: (url, init) => fetch(url, init),
+    token: env.WA_TOKEN,
+    phoneId: env.WA_PHONE_ID,
+    to: phone,
+    detail,
+    template,
+  });
+  if (result.ok) return;
+  const status = result.status.split(env.WA_TOKEN).join("[redacted]");
+  console.error(`WhatsApp message was not delivered: ${status} phone ${maskPhone(phone)}`);
   await rememberFailure(env, status, phone);
   throw new Error("wa_failed");
 }

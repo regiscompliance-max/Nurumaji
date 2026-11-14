@@ -35,7 +35,7 @@ type JobRow = {
 
 type EventRow = { id: string; type: string; note: string | null; created_at: number };
 type PhotoRow = { id: string; created_at: number };
-type QuoteRow = { id: string; amount_kes: number; status: string; created_at: number };
+type QuoteRow = { id: string; amount_kes: number; status: string; created_at: number; nudges?: { kind: string; sent_at: number }[] };
 type RatingRow = { score: number; comment: string | null; created_at: number | null };
 
 export const jobs = new Hono<AppContext>({ strict: false });
@@ -208,13 +208,32 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
   return {
     events: events.results ?? [],
     photos: photos.results ?? [],
-    quotes: quotes.results ?? [],
+    quotes: await withQuoteNudges(c, quotes.results ?? []),
     invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at, due_at, payment_method, mpesa_code FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null; due_at: number | null; payment_method: string | null; mpesa_code: string | null }>()).results ?? [],
     rating: rating ?? null,
     resolutionNote: await loadResolutionNote(c, jobId),
     testSheet: await loadTestSheet(c, jobId),
     followUp: await loadFollowUp(c, jobId),
   };
+}
+
+async function withQuoteNudges(c: { env: AppContext["Bindings"] }, quotes: QuoteRow[]): Promise<QuoteRow[]> {
+  if (!quotes.length) return quotes;
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT quote_id, kind, sent_at FROM quote_nudges
+       WHERE quote_id IN (SELECT id FROM quotes WHERE job_id = (SELECT job_id FROM quotes WHERE id = ?))`
+    ).bind(quotes[0].id).all<{ quote_id: string; kind: string; sent_at: number }>();
+    const byQuote = new Map<string, { kind: string; sent_at: number }[]>();
+    for (const row of rows.results ?? []) {
+      const list = byQuote.get(row.quote_id) ?? [];
+      list.push({ kind: row.kind, sent_at: row.sent_at });
+      byQuote.set(row.quote_id, list);
+    }
+    return quotes.map((quote) => ({ ...quote, nudges: byQuote.get(quote.id) ?? [] }));
+  } catch {
+    return quotes.map((quote) => ({ ...quote, nudges: [] }));
+  }
 }
 
 async function loadResolutionNote(c: { env: AppContext["Bindings"] }, jobId: string) {
