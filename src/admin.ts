@@ -4,6 +4,7 @@ import { recordComplianceDocument } from "./compliance-run";
 import { nowSeconds } from "./crypto";
 import { readSession } from "./session";
 import { parsePaymentSettings } from "./payments.mjs";
+import { parseInspectionSettings } from "./inspection.mjs";
 import { parseQuoteFollowUpSettings } from "./quote-followups.mjs";
 import { parseStuckSettings } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
@@ -181,6 +182,18 @@ adminApi.post("/digest", async (c) => {
     c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('digest_weekly_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(weekly ? "1" : "0"),
   ]);
   if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#digest", 303);
+  return c.json({ ok: true });
+});
+
+adminApi.post("/inspection", async (c) => {
+  const body = await readAny(c);
+  const parsed = parseInspectionSettings({ price: body.price, sms: body.sms });
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('inspection_price_from', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.price),
+    c.env.DB.prepare("INSERT INTO settings (key, value) VALUES ('inspection_reminder_sms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(parsed.sms ? "1" : "0"),
+  ]);
+  if (!c.req.header("accept")?.includes("application/json")) return c.redirect("/portal/admin#inspection-settings", 303);
   return c.json({ ok: true });
 });
 

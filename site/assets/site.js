@@ -65,6 +65,18 @@ var EMAIL = "hello@nurumaji.co.ke";
   var y = document.querySelector("[data-year]");
   if (y) y.textContent = new Date().getFullYear();
 
+  var inspectionPrice = document.getElementById("inspection-price");
+  if (inspectionPrice) {
+    fetch("/api/inspection-price").then(function (response) { return response.json(); }).then(function (data) {
+      if (data && data.line) inspectionPrice.textContent = data.line;
+    }).catch(function () {});
+  }
+  var bookService = document.getElementById("service");
+  if (bookService && bookService.tagName === "SELECT") {
+    var chosenService = new URLSearchParams(window.location.search).get("service");
+    if (chosenService) bookService.value = chosenService;
+  }
+
   // Booking form
   var form = document.getElementById("booking");
   if (!form) return;
@@ -74,6 +86,7 @@ var EMAIL = "hello@nurumaji.co.ke";
   var serviceMap = {
     care: "Care plan enquiry",
     safety: "Building safety check",
+    inspection: "Electrical safety inspection",
     tripping: "Electrical fault or repair",
     sockets: "Electrical fault or repair",
     lighting: "Lighting",
