@@ -11,6 +11,7 @@ export const SERVICES = {
   drain: { trade: "plumbing", label: "Blocked drains and toilets" },
   tanks: { trade: "plumbing", label: "Tanks and booster pumps" },
   safety: { trade: "electrical", label: "Building safety check" },
+  inspection: { trade: "electrical", label: "Electrical safety inspection" },
   electrical: { trade: "electrical", label: "Electrical work" },
   plumbing: { trade: "plumbing", label: "Plumbing work" },
 };

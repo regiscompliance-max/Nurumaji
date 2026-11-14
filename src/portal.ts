@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { detailPage, invitePage, queuePage } from "./application-pages";
 import { suggestTechnicians } from "./dispatch-run";
 import { staffDetail, staffQueue } from "./join-api";
+import { defaultNextDue, inspectionReportLines, nairobiDate } from "./inspection.mjs";
+import { readInspectionPrice } from "./inspection-run";
 import { loadAnyJob, loadClientJobs } from "./jobs";
 import { endSession, readSession } from "./session";
 import { documentLabel } from "./compliance.mjs";
@@ -9,11 +11,11 @@ import { jobReference } from "./followups.mjs";
 import { canEditRating } from "./ratings.mjs";
 import { daysPastDue, invoiceReference, owedBucket } from "./payments.mjs";
 import { reportsInner } from "./report-page";
-import { lookupService } from "./services.mjs";
+import { SERVICES, lookupService } from "./services.mjs";
 import { formatAge, reasonLabel } from "./stuck-jobs.mjs";
 import type { AppContext, Role } from "./types";
 
-const ASSET = "20261111e";
+const ASSET = "20261114a";
 
 const COPY: Record<Role, { eyebrow: string; title: string; body: string }> = {
   client: {
@@ -81,16 +83,26 @@ portal.get("/book", async (c) => {
     const suffix = query.toString() ? `?${query}` : "";
     return c.redirect(`/book${suffix}`, 303);
   }
-  return c.html(bookingPage(user.phone, service, urgency));
+  return c.html(bookingPage(user.phone, service, urgency, await readInspectionPrice(c.env)));
+});
+
+portal.get("/jobs/:id/inspection", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.redirect("/portal/login", 303);
+  const group = await loadAnyJob(c, c.req.param("id"));
+  if (!group || !canSeeJob(user, group.job)) return c.html(page("Inspection", shell(user.phone, "<h1>Inspection not found</h1>")), 404);
+  if (!group.inspection) return c.html(page("Inspection", shell(user.phone, `<h1>No inspection recorded</h1><p><a href="/portal/jobs/${group.job.id}">Back to the job</a></p>`)), 404);
+  return c.html(inspectionReportPage(user.phone, group));
 });
 
 portal.get("/jobs/:id", async (c) => {
   const user = await readSession(c);
   if (!user) return c.redirect("/portal/login", 303);
-  if (user.role === "operator" || user.role === "admin") {
+  if (user.role === "operator" || user.role === "admin" || user.role === "technician") {
     const group = await loadAnyJob(c, c.req.param("id"));
-    if (!group) return c.html(page("Job", shell(user.phone, "<h1>Job not found</h1><p><a href=\"/portal/operator\">Back to the board</a></p>")), 404);
-    return c.html(jobPage(user.phone, group, "/portal/operator", false));
+    if (!group || !canSeeJob(user, group.job)) return c.html(page("Job", shell(user.phone, "<h1>Job not found</h1><p><a href=\"/portal/operator\">Back to the board</a></p>")), 404);
+    const back = user.role === "technician" ? "/portal/technician" : "/portal/operator";
+    return c.html(jobPage(user.phone, group, back, false));
   }
   if (user.role !== "client") return c.html(forbiddenPage(user.role), 403);
   const groups = await loadClientJobs(c, user.id);
@@ -190,10 +202,10 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
      ORDER BY job_offers.expires_at ASC`
   ).bind(user.id, now).all<{ id: string; expires_at: number; trade: string; urgency: string; description: string; address: string | null }>();
   const assigned = await c.env.DB.prepare(
-    `SELECT id, trade, description, address, status FROM jobs
+    `SELECT id, trade, description, address, status, service_key FROM jobs
      WHERE assigned_tech_id = ? AND status IN ('assigned', 'en_route', 'on_site')
      ORDER BY updated_at DESC LIMIT 1`
-  ).bind(user.id).first<{ id: string; trade: string; description: string; address: string | null; status: string }>();
+  ).bind(user.id).first<{ id: string; trade: string; description: string; address: string | null; status: string; service_key: string | null }>();
   await c.env.DB.prepare("UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0").bind(user.id).run();
   const trades = new Set((profile?.trades ?? "").split(",").map((item) => item.trim()));
   const duty = profile?.on_duty === 1;
@@ -213,6 +225,7 @@ async function technicianDashboard(c: { env: AppContext["Bindings"] }, user: { i
       <h2>${escapeHtml(titleCase(assigned.trade))}</h2>
       <p>${escapeHtml(assigned.description)}</p>
       ${assigned.address ? `<p>${escapeHtml(assigned.address)}</p>` : ""}
+      ${assigned.service_key === "inspection" ? `<p><a href="/portal/jobs/${assigned.id}#inspection-form">Inspection checklist</a></p>` : ""}
       <form method="post" action="/api/technician/jobs/${assigned.id}/progress" enctype="multipart/form-data" class="form">
         <input type="hidden" name="status" value="${nextStatus}">
         <div class="field"><label for="note">Note</label><textarea id="note" name="note" maxlength="500"></textarea></div>
@@ -367,7 +380,7 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
      WHERE users.role = 'technician'
      ORDER BY users.name`
   ).all<{ id: string; name: string | null; approved: number | null; trades: string | null; application_id: string | null; personal_json: string | null }>();
-  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template', 'quote_followup_days', 'quote_followup_final_days', 'quote_followup_sms', 'whatsapp_quote_template')").all<{ key: string; value: string }>();
+  const settings = await c.env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offer_timeout_seconds', 'service_areas', 'pricing_note', 'stuck_awaiting_minutes', 'stuck_not_started_hours', 'stuck_in_progress_hours', 'stuck_alert_sms', 'invoice_due_days', 'payment_reminder_offsets', 'payment_reminders_sms', 'digest_daily_sms', 'digest_weekly_sms', 'rating_sms', 'rating_sms_delay_hours', 'compliance_sms', 'at_balance_min_kes', 'health_sms', 'repeat_electrical_months', 'repeat_heater_months', 'repeat_sms', 'whatsapp_otp', 'whatsapp_otp_template', 'quote_followup_days', 'quote_followup_final_days', 'quote_followup_sms', 'whatsapp_quote_template', 'inspection_price_from', 'inspection_reminder_sms')").all<{ key: string; value: string }>();
   const setting = Object.fromEntries((settings.results ?? []).map((row) => [row.key, row.value]));
   const days = await c.env.DB.prepare(
     `SELECT date(created_at, 'unixepoch', '+3 hours') AS day, COUNT(*) AS n
@@ -460,6 +473,15 @@ async function adminDashboard(c: { env: AppContext["Bindings"] }, user: { phone:
       <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.quote_followup_sms === "1" ? " checked" : ""}> Send quote follow-up reminders</label>
       <p class="muted">Off until this is switched on. One reminder goes to the client after the waiting days. A later last reminder is sent only if that day count is filled in. Messages go between 08:00 and 19:00 Nairobi time. If WhatsApp sign-in codes are on, WhatsApp is tried first and a text is used when it cannot be sent. Messages cost money.</p>
       <button class="btn btn-amber" type="submit">Save quote follow-ups</button>
+    </form>
+    </section>
+    <section id="inspection-settings">
+    <h2>Electrical safety inspection</h2>
+    <form method="post" action="/api/admin/inspection" class="form">
+      <div class="field"><label for="inspection-price">Price, shown as from</label><input id="inspection-price" name="price" value="${escapeHtml(setting.inspection_price_from || "6,000–8,000")}" placeholder="6,000–8,000"></div>
+      <label class="trade-choice"><input type="checkbox" name="sms" value="1"${setting.inspection_reminder_sms === "1" ? " checked" : ""}> Text clients when the next inspection is due</label>
+      <p class="muted">Off until this is switched on. The public page shows “From KES” and this range. It is not a fixed quote. One text can go out on the due date, between 08:00 and 19:00 Nairobi time. Texts cost money.</p>
+      <button class="btn btn-amber" type="submit">Save inspection settings</button>
     </form>
     </section>
     <section id="digest">
@@ -915,18 +937,28 @@ function loginPage(whatsApp = false): string {
   );
 }
 
-function bookingPage(phone: string, serviceKey: string, urgency: string): string {
+function bookingPage(phone: string, serviceKey: string, urgency: string, priceLine: string): string {
   const service = lookupService(serviceKey);
   const trade = service?.trade ?? "electrical";
   const chosenUrgency = urgency === "urgent" || urgency === "emergency" ? urgency : "standard";
   const description = service ? service.label : "";
+  const options = Object.entries(SERVICES).map(([key, item]) =>
+    `<option value="${escapeHtml(key)}"${key === service?.key ? " selected" : ""}>${escapeHtml(item.label)}</option>`
+  ).join("");
   return page("Request a visit", shell(phone, `
     <p class="eyebrow">Client</p>
     <h1>Request a visit</h1>
     <p class="lede">Tell us what needs doing. You will have a written price before any work starts.</p>
     <form id="booking-form" class="form">
       <input type="hidden" name="channel" value="portal">
-      <input type="hidden" name="service" value="${escapeHtml(service?.key ?? "")}">
+      <div class="field"><label for="service">Service</label>
+        <select id="service" name="service">
+          <option value="">General visit</option>
+          ${options}
+        </select>
+      </div>
+      <p id="inspection-offer">${escapeHtml(priceLine || "The electrical safety inspection price is confirmed when you book.")}</p>
+      <p class="muted">That figure is the electrical safety inspection, shown as from. The written quote confirms the price.</p>
       <div class="field"><label for="trade">Trade</label>
         <select id="trade" name="trade">
           <option value="electrical"${trade === "electrical" ? " selected" : ""}>Electrical</option>
@@ -1101,7 +1133,7 @@ function jobBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], com
     <h3>Timeline</h3>
     ${timeline}
     ${photos ? `<div class="photo-row">${photos}</div>` : ""}
-    ${compact ? "" : `<section class="doc-block"><h3>Quote</h3>${quotes}</section>${invoices ? `<section class="doc-block"><h3>Invoice</h3>${invoices}</section>` : ""}${testSheetHtml(group.testSheet)}<h3>Rating</h3>${rating}`}
+    ${compact ? "" : `<section class="doc-block"><h3>Quote</h3>${quotes}</section>${invoices ? `<section class="doc-block"><h3>Invoice</h3>${invoices}</section>` : ""}${testSheetHtml(group.testSheet)}${inspectionBlock(group, forClient)}<h3>Rating</h3>${rating}`}
     ${compact ? `<p><a href="/portal/jobs/${job.id}">Quote and rating</a></p>` : ""}
   </article>`;
 }
@@ -1162,6 +1194,62 @@ function quoteNudgeStatus(nudges: { kind: string; sent_at: number }[] | undefine
     last ? `Last reminder sent ${formatWhen(last.sent_at)}` : "Last reminder not sent",
   ];
   return `Follow-up: ${parts.join(". ")}.`;
+}
+
+function canSeeJob(user: { id: string; role: Role }, job: { client_id?: string; assigned_tech_id?: string | null }): boolean {
+  if (user.role === "admin" || user.role === "operator") return true;
+  if (user.role === "technician") return job.assigned_tech_id === user.id;
+  return job.client_id === user.id;
+}
+
+function inspectionBlock(group: Awaited<ReturnType<typeof loadClientJobs>>[number], forClient: boolean): string {
+  const job = group.job;
+  if (group.inspection) return `<p><a href="/portal/jobs/${job.id}/inspection">View the inspection report</a></p>`;
+  if (forClient || job.service_key !== "inspection") return "";
+  const today = nairobiDate(Math.floor(Date.now() / 1000));
+  const nextDue = defaultNextDue(today);
+  return `<section id="inspection-form"><h3>Inspection checklist</h3>
+    <p class="muted">Record what was seen. These readings do not set a pass mark. This record is not a government certificate.</p>
+    <form method="post" action="/api/jobs/${job.id}/inspection" class="form">
+      <div class="field"><label for="insulationMohm">Insulation resistance, MΩ</label><input id="insulationMohm" name="insulationMohm" inputmode="decimal" required></div>
+      <div class="field"><label for="zsOhm">Earthing, earth loop impedance Zs, Ω</label><input id="zsOhm" name="zsOhm" inputmode="decimal" required></div>
+      <div class="field"><label for="rcdMs">RCD trip time, ms</label><input id="rcdMs" name="rcdMs" inputmode="decimal" required></div>
+      <div class="field"><label for="polarity">Polarity</label><select id="polarity" name="polarity" required><option value="">Choose</option><option value="pass">Pass</option><option value="fail">Fail</option></select></div>
+      <div class="field"><label for="visibleDamage">Visible damage</label><select id="visibleDamage" name="visibleDamage" required><option value="">Choose</option><option value="no">No</option><option value="yes">Yes</option></select></div>
+      <div class="field"><label for="overloaded">Overloaded circuits</label><select id="overloaded" name="overloaded" required><option value="">Choose</option><option value="no">No</option><option value="yes">Yes</option></select></div>
+      <div class="field"><label for="recommendations">Recommendations</label><textarea id="recommendations" name="recommendations" maxlength="1000"></textarea></div>
+      <div class="field"><label for="inspection-result">Overall result</label><select id="inspection-result" name="result" required><option value="">Choose</option><option value="satisfactory">Satisfactory</option><option value="unsatisfactory">Unsatisfactory</option></select></div>
+      <div class="field"><label for="inspectedOn">Date of inspection</label><input id="inspectedOn" name="inspectedOn" type="date" required value="${today}"></div>
+      <div class="field"><label for="nextDue">Next inspection due</label><input id="nextDue" name="nextDue" type="date" required value="${nextDue}"></div>
+      <button class="btn btn-amber" type="submit">Save inspection</button>
+    </form></section>`;
+}
+
+function inspectionReportPage(phone: string, group: Awaited<ReturnType<typeof loadClientJobs>>[number]): string {
+  const inspection = group.inspection;
+  if (!inspection) return page("Inspection", shell(phone, "<h1>No inspection recorded</h1>"));
+  let readings: Record<string, string | number> = {};
+  try {
+    const parsed = JSON.parse(inspection.readings_json) as unknown;
+    if (parsed && typeof parsed === "object") readings = parsed as Record<string, string | number>;
+  } catch { readings = {}; }
+  const lines = inspectionReportLines({
+    address: group.job.address,
+    inspectedOn: inspection.inspected_on,
+    inspectorName: inspection.inspector_name,
+    readings,
+    result: inspection.result,
+    nextDue: inspection.next_due_on,
+    recommendations: inspection.recommendations,
+  });
+  return page("Electrical safety inspection", shell(phone, `
+    <p class="no-print"><a href="/portal/jobs/${group.job.id}">Back to the job</a></p>
+    <article class="inspection-report" id="inspection-report">
+      <img src="/assets/logo-lockup.svg?v=${ASSET}" width="222" height="52" alt="Nuru &amp; Maji">
+      ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+      <p class="muted no-print">To save a copy, use Print in your browser and choose Save as PDF.</p>
+    </article>
+  `));
 }
 
 function formatWhen(seconds: number): string {

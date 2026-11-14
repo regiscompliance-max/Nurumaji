@@ -7,6 +7,7 @@ import {
   approveApplication, createInvite, joinApi, reapproveRenewal, rejectApplication, requestInfo, setChecklist, staffQueue,
 } from "./join-api";
 import { adminApi } from "./admin";
+import { readInspectionPrice } from "./inspection-run";
 import { jobs } from "./jobs";
 import { operatorApi } from "./operator";
 import { storeTechnicianPhoto } from "./portrait";
@@ -32,6 +33,10 @@ export const api = new Hono<AppContext>({ strict: false });
 api.use("*", async (c, next) => {
   if (!c.env.DB) return c.json({ error: "The portal database is not connected." }, 503);
   await next();
+});
+
+api.get("/inspection-price", async (c) => {
+  return c.json({ line: await readInspectionPrice(c.env) });
 });
 
 api.post("/auth/otp/request", async (c) => {

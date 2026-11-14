@@ -4,6 +4,7 @@ import { nowSeconds } from "./crypto";
 import { saveJobRating } from "./rating-run";
 import { dispatchJob } from "./dispatch-run";
 import { readSession } from "./session";
+import { nairobiDate, validateInspection } from "./inspection.mjs";
 import { lookupService } from "./services.mjs";
 import type { AppContext, UserRow } from "./types";
 
@@ -20,6 +21,7 @@ const urgencySchema = z.enum(["standard", "urgent", "emergency"]);
 type JobRow = {
   id: string;
   client_id: string;
+  service_key?: string | null;
   trade: "electrical" | "plumbing";
   description: string;
   urgency: "standard" | "urgent" | "emergency";
@@ -52,17 +54,31 @@ jobs.post("/", async (c) => {
 
   const now = nowSeconds();
   const id = crypto.randomUUID();
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO jobs (id, client_id, trade, description, urgency, address, lat, lng, preferred_time, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`
-    ).bind(id, user.id, input.trade, input.description, input.urgency, input.address, input.lat, input.lng, input.preferredTime, now, now),
+  const insertJob = (withService: boolean) => c.env.DB.prepare(
+    withService
+      ? `INSERT INTO jobs (id, client_id, trade, description, urgency, address, lat, lng, preferred_time, service_key, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`
+      : `INSERT INTO jobs (id, client_id, trade, description, urgency, address, lat, lng, preferred_time, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`
+  ).bind(
+    ...(withService
+      ? [id, user.id, input.trade, input.description, input.urgency, input.address, input.lat, input.lng, input.preferredTime, input.serviceKey, now, now]
+      : [id, user.id, input.trade, input.description, input.urgency, input.address, input.lat, input.lng, input.preferredTime, now, now])
+  );
+  const rest = [
     c.env.DB.prepare(
       "INSERT INTO job_events (id, job_id, actor_id, type, note, created_at) VALUES (?, ?, ?, 'created', ?, ?)"
     ).bind(crypto.randomUUID(), id, user.id, "Request received", now),
     c.env.DB.prepare("INSERT INTO booking_limits (id, bucket, created_at) VALUES (?, ?, ?)").bind(crypto.randomUUID(), `user:${user.id}`, now),
     c.env.DB.prepare("INSERT INTO booking_limits (id, bucket, created_at) VALUES (?, ?, ?)").bind(crypto.randomUUID(), `ip:${ip}`, now),
-  ]);
+  ];
+  try {
+    await c.env.DB.batch([insertJob(true), ...rest]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!message.includes("no such column")) throw error;
+    await c.env.DB.batch([insertJob(false), ...rest]);
+  }
 
   if (input.files.length) {
     if (!c.env.UPLOADS) return c.json({ error: "Photo storage is not connected yet. The request was saved without photos.", id, path: `/portal/jobs/${id}` }, 201);
@@ -121,6 +137,36 @@ jobs.get("/:id/photos/:photoId", async (c) => {
   headers.set("Cache-Control", "private, max-age=3600");
   headers.set("X-Content-Type-Options", "nosniff");
   return new Response(object.body, { headers });
+});
+
+jobs.post("/:id/inspection", async (c) => {
+  const user = await readSession(c);
+  if (!user) return c.json({ error: "Sign in required." }, 401);
+  const job = await c.env.DB.prepare(
+    "SELECT id, client_id, assigned_tech_id, service_key FROM jobs WHERE id = ?"
+  ).bind(c.req.param("id")).first<{ id: string; client_id: string; assigned_tech_id: string | null; service_key: string | null }>();
+  if (!job) return c.json({ error: "Job not found." }, 404);
+  const allowed = user.role === "admin" || user.role === "operator" || (user.role === "technician" && job.assigned_tech_id === user.id);
+  if (!allowed) return c.json({ error: "You cannot record this inspection." }, 403);
+  if (job.service_key !== "inspection") return c.json({ error: "This job is not an electrical safety inspection." }, 400);
+  const existing = await c.env.DB.prepare("SELECT id FROM safety_inspections WHERE job_id = ?").bind(job.id).first();
+  if (existing) return c.json({ error: "This inspection is already recorded." }, 400);
+  const raw = await readBody(c);
+  const record = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const saved = validateInspection(record, nairobiDate(nowSeconds()));
+  if ("error" in saved) return c.json({ error: saved.error }, 400);
+  const now = nowSeconds();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO safety_inspections (id, job_id, readings_json, recommendations, result, inspected_on, next_due_on, inspector_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(crypto.randomUUID(), job.id, JSON.stringify(saved.readings), saved.recommendations || null, saved.result, saved.inspectedOn, saved.nextDue, user.id, now),
+    c.env.DB.prepare(
+      "INSERT INTO audit_log (id, actor_id, action, details_json, created_at) VALUES (?, ?, 'inspection_recorded', ?, ?)"
+    ).bind(crypto.randomUUID(), user.id, JSON.stringify({ jobId: job.id, result: saved.result }), now),
+  ]);
+  if (wantsHtml(c)) return c.redirect(`/portal/jobs/${job.id}/inspection`, 303);
+  return c.json({ ok: true });
 });
 
 jobs.post("/:id/quotes/:quoteId/approve", async (c) => {
@@ -209,12 +255,39 @@ async function jobDetail(c: { env: AppContext["Bindings"] }, jobId: string) {
     events: events.results ?? [],
     photos: photos.results ?? [],
     quotes: await withQuoteNudges(c, quotes.results ?? []),
+    inspection: await loadInspection(c, jobId),
     invoices: (await c.env.DB.prepare("SELECT id, amount_kes, status, paid_at, due_at, payment_method, mpesa_code FROM invoices WHERE job_id = ? ORDER BY rowid").bind(jobId).all<{ id: string; amount_kes: number; status: string; paid_at: number | null; due_at: number | null; payment_method: string | null; mpesa_code: string | null }>()).results ?? [],
     rating: rating ?? null,
     resolutionNote: await loadResolutionNote(c, jobId),
     testSheet: await loadTestSheet(c, jobId),
     followUp: await loadFollowUp(c, jobId),
   };
+}
+
+export type InspectionView = {
+  id: string;
+  readings_json: string;
+  recommendations: string | null;
+  result: string;
+  inspected_on: string;
+  next_due_on: string;
+  inspector_name: string | null;
+};
+
+export async function loadInspection(c: { env: AppContext["Bindings"] }, jobId: string): Promise<InspectionView | null> {
+  try {
+    const row = await c.env.DB.prepare(
+      `SELECT safety_inspections.id, safety_inspections.readings_json, safety_inspections.recommendations,
+              safety_inspections.result, safety_inspections.inspected_on, safety_inspections.next_due_on,
+              users.name AS inspector_name
+       FROM safety_inspections
+       LEFT JOIN users ON users.id = safety_inspections.inspector_id
+       WHERE safety_inspections.job_id = ?`
+    ).bind(jobId).first<InspectionView>();
+    return row ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function withQuoteNudges(c: { env: AppContext["Bindings"] }, quotes: QuoteRow[]): Promise<QuoteRow[]> {
@@ -277,7 +350,7 @@ async function loadTestSheet(c: { env: AppContext["Bindings"] }, jobId: string) 
 
 export async function loadAnyJob(c: { env: AppContext["Bindings"] }, jobId: string) {
   const listed = await c.env.DB.prepare(
-    `SELECT jobs.id, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
+    `SELECT jobs.id, jobs.client_id, jobs.service_key, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
             jobs.preferred_time, jobs.created_at, jobs.assigned_tech_id,
             tech.name AS tech_name,
             CASE WHEN technician_profiles.photo_key IS NOT NULL AND technician_profiles.photo_key != '' THEN 1 ELSE 0 END AS tech_has_photo
@@ -292,7 +365,7 @@ export async function loadAnyJob(c: { env: AppContext["Bindings"] }, jobId: stri
 
 export async function loadClientJobs(c: { env: AppContext["Bindings"] }, userId: string) {
   const listed = await c.env.DB.prepare(
-    `SELECT jobs.id, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
+    `SELECT jobs.id, jobs.client_id, jobs.service_key, jobs.trade, jobs.description, jobs.urgency, jobs.status, jobs.address,
             jobs.preferred_time, jobs.created_at, jobs.assigned_tech_id,
             tech.name AS tech_name,
             CASE WHEN technician_profiles.photo_key IS NOT NULL AND technician_profiles.photo_key != '' THEN 1 ELSE 0 END AS tech_has_photo
@@ -322,7 +395,7 @@ async function overLimit(c: { env: AppContext["Bindings"] }, userId: string, ip:
 }
 
 async function readJobInput(c: { req: { header: (name: string) => string | undefined; json: () => Promise<unknown>; formData: () => Promise<FormData> } }): Promise<
-  | { ok: true; trade: "electrical" | "plumbing"; description: string; urgency: "standard" | "urgent" | "emergency"; address: string | null; lat: number | null; lng: number | null; preferredTime: number | null; files: File[] }
+  | { ok: true; serviceKey: string | null; trade: "electrical" | "plumbing"; description: string; urgency: "standard" | "urgent" | "emergency"; address: string | null; lat: number | null; lng: number | null; preferredTime: number | null; files: File[] }
   | { ok: false; error: string }
 > {
   const contentType = c.req.header("content-type") || "";
@@ -371,7 +444,8 @@ async function readJobInput(c: { req: { header: (name: string) => string | undef
 
   return {
     ok: true,
-    trade: tradeParsed.data,
+    serviceKey: service?.key ?? null,
+    trade: service?.key === "inspection" ? "electrical" : tradeParsed.data,
     description,
     urgency: urgencyParsed.success ? urgencyParsed.data : "standard",
     address: address || null,
