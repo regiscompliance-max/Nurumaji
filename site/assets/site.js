@@ -65,6 +65,32 @@ var EMAIL = "hello@nurumaji.co.ke";
   var y = document.querySelector("[data-year]");
   if (y) y.textContent = new Date().getFullYear();
 
+  fetch("/api/emergency-booking").then(function (response) { return response.json(); }).then(function (data) {
+    var section = document.getElementById("emergency-callout");
+    if (data && data.enabled && section) {
+      section.hidden = false;
+      var publicNotice = document.getElementById("emergency-public-notice");
+      if (publicNotice && data.notice) publicNotice.textContent = data.notice.join(" ");
+    }
+    var urgencySelect = document.getElementById("urgency");
+    if (data && data.enabled && urgencySelect && urgencySelect.tagName === "SELECT" && !urgencySelect.querySelector("option[value='emergency']")) {
+      var option = document.createElement("option");
+      option.value = "emergency";
+      option.textContent = "Emergency (24/7)";
+      urgencySelect.appendChild(option);
+      if (new URLSearchParams(window.location.search).get("urgency") === "emergency") urgencySelect.value = "emergency";
+    }
+    var bookNotice = document.getElementById("emergency-notice");
+    if (bookNotice && data && data.enabled && data.notice) {
+      bookNotice.textContent = data.notice.join(" ");
+      function syncBookEmergency() {
+        bookNotice.hidden = !urgencySelect || urgencySelect.value !== "emergency";
+      }
+      if (urgencySelect) urgencySelect.addEventListener("change", syncBookEmergency);
+      syncBookEmergency();
+    }
+  }).catch(function () {});
+
   var inspectionPrice = document.getElementById("inspection-price");
   if (inspectionPrice) {
     fetch("/api/inspection-price").then(function (response) { return response.json(); }).then(function (data) {

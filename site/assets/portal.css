@@ -41,6 +41,9 @@
 #inspection-form .form > .btn-amber[type="submit"]{position:static}
 .inspection-report{display:grid;gap:8px;max-width:720px;background:#fff;border:1px solid var(--rule);border-radius:4px;padding:28px 24px}
 .inspection-report img{width:180px;height:auto}
+.badge-emergency{display:inline-block;margin:0 0 8px;padding:4px 8px;border-radius:4px;background:#8E1D1D;color:#fff;font-size:13px;letter-spacing:.04em;text-transform:uppercase}
+#emergency-settings{display:grid;gap:12px;max-width:640px}
+#emergency-notice:not([hidden]){display:grid;gap:12px;max-width:640px}
 .inspection-report p{margin:0}
 @media print{
   .site-head,.skip,.no-print{display:none !important}

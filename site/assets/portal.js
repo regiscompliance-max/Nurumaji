@@ -85,6 +85,20 @@
     });
   }
 
+  var urgencyField = document.getElementById("urgency");
+  var emergencyNotice = document.getElementById("emergency-notice");
+  var emergencyProblem = document.getElementById("emergency-problem");
+  function syncEmergency() {
+    if (!urgencyField || !emergencyNotice) return;
+    var on = urgencyField.value === "emergency";
+    emergencyNotice.hidden = !on;
+    if (emergencyProblem) emergencyProblem.required = on;
+  }
+  if (urgencyField) {
+    urgencyField.addEventListener("change", syncEmergency);
+    syncEmergency();
+  }
+
   if (booking && status) {
     booking.addEventListener("submit", function (event) {
       event.preventDefault();

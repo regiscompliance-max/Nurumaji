@@ -7,8 +7,10 @@
   var params = new URLSearchParams(window.location.search);
   var serviceField = document.getElementById("service");
   if (serviceField && params.get("service")) serviceField.value = params.get("service");
-  var urgency = params.get("urgency") || "standard";
-  if (urgency !== "urgent" && urgency !== "emergency") urgency = "standard";
+  var urgencyField = document.getElementById("urgency");
+  if (urgencyField && params.get("urgency") && urgencyField.querySelector("option[value='" + params.get("urgency") + "']")) {
+    urgencyField.value = params.get("urgency");
+  }
 
   fetch("/api/me", { headers: { accept: "application/json" } }).then(function (response) {
     if (response.ok) window.location.replace("/portal/book" + window.location.search);
@@ -62,7 +64,9 @@
     }).then(function (result) {
       if (!result) return null;
       if (!result.ok) { say(result.data.error || "Your name could not be saved."); return null; }
-      return post("/api/jobs", { service: service, description: description, urgency: urgency });
+      var chosenUrgency = urgencyField ? urgencyField.value : "standard";
+      if (chosenUrgency !== "urgent" && chosenUrgency !== "emergency") chosenUrgency = "standard";
+      return post("/api/jobs", { service: service, description: description, urgency: chosenUrgency });
     }).then(function (result) {
       if (!result) return;
       if (!result.ok) { say(result.data.error || "The request could not be saved."); return; }
